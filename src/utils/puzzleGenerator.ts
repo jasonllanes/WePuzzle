@@ -3,6 +3,11 @@ import { loadImage } from "./imageProcessor";
 
 const rotations: readonly PieceRotation[] = [0, 90, 180, 270];
 
+export interface GeneratedPuzzle {
+  pieces: PuzzlePiece[];
+  aspectRatio: number;
+}
+
 function shuffle<T>(input: readonly T[]): T[] {
   const output = [...input];
   for (let index = output.length - 1; index > 0; index -= 1) {
@@ -16,7 +21,7 @@ export async function generatePuzzlePieces(
   imageUrl: string,
   grid: GridSettings,
   rotatePieces: boolean,
-): Promise<PuzzlePiece[]> {
+): Promise<GeneratedPuzzle> {
   const image = await loadImage(imageUrl);
   const pieceWidth = image.naturalWidth / grid.columns;
   const pieceHeight = image.naturalHeight / grid.rows;
@@ -54,5 +59,8 @@ export async function generatePuzzlePieces(
     }
   }
 
-  return shuffle(pieces);
+  return {
+    pieces: shuffle(pieces),
+    aspectRatio: image.naturalWidth / image.naturalHeight,
+  };
 }

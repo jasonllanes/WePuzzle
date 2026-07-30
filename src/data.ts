@@ -22,6 +22,6 @@ export const DEFAULT_CUSTOM_SETTINGS: CustomDifficultySettings = {
     shuffle: "normal",
     snap: "normal",
     rotation: false,
-    allowIncorrect: true,
+    allowIncorrect: false,
   },
 };

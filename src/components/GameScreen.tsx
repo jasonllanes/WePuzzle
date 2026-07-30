@@ -49,6 +49,8 @@ export function GameScreen(props: GameScreenProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tray, setTray] = useState<PuzzlePiece[]>([]);
   const [board, setBoard] = useState<Array<PuzzlePiece | null>>([]);
+  const [imageAspectRatio, setImageAspectRatio] = useState(1);
+  const [boardSize, setBoardSize] = useState({ width: 640, height: 640 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [status, setStatus] = useState<GameStatus>({ type: "playing" });
   const [moves, setMoves] = useState(0);
@@ -59,6 +61,7 @@ export function GameScreen(props: GameScreenProps) {
   const initialCountdown = props.timer.mode === "countdown" ? props.timer.minutes * 60 + props.timer.seconds : 0;
   const [clock, setClock] = useState(props.timer.mode === "countdown" ? initialCountdown : 0);
   const completionHandled = useRef(false);
+  const boardStageRef = useRef<HTMLDivElement>(null);
   const totalPieces = props.grid.rows * props.grid.columns;
 
   const isCorrect = useCallback(
@@ -78,8 +81,9 @@ export function GameScreen(props: GameScreenProps) {
     setLoadError(null);
     completionHandled.current = false;
     void generatePuzzlePieces(props.image.url, props.grid, props.behavior.rotation)
-      .then((pieces) => {
+      .then(({ pieces, aspectRatio }) => {
         if (cancelled) return;
+        setImageAspectRatio(aspectRatio);
         setTray(pieces);
         setBoard(Array.from({ length: totalPieces }, () => null));
         setSelectedId(null);
@@ -97,6 +101,38 @@ export function GameScreen(props: GameScreenProps) {
       });
     return () => { cancelled = true; };
   }, [generation, initialCountdown, props.behavior.rotation, props.grid, props.image.url, props.timer.mode, totalPieces]);
+
+  useEffect(() => {
+    const stage = boardStageRef.current;
+    if (!stage) return;
+
+    const fitBoard = () => {
+      const availableWidth = stage.clientWidth;
+      const reservedVerticalSpace = window.innerWidth <= 720 ? 245 : 265;
+      const availableHeight = Math.max(280, Math.min(680, window.innerHeight - reservedVerticalSpace));
+      let width = availableWidth;
+      let height = width / imageAspectRatio;
+
+      if (height > availableHeight) {
+        height = availableHeight;
+        width = height * imageAspectRatio;
+      }
+
+      setBoardSize({
+        width: Math.max(1, Math.floor(width)),
+        height: Math.max(1, Math.floor(height)),
+      });
+    };
+
+    fitBoard();
+    const observer = new ResizeObserver(fitBoard);
+    observer.observe(stage);
+    window.addEventListener("resize", fitBoard);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", fitBoard);
+    };
+  }, [imageAspectRatio]);
 
   useEffect(() => {
     if (loading || status.type !== "playing") return;
@@ -221,6 +257,7 @@ export function GameScreen(props: GameScreenProps) {
     score: calculateScore({ pieceCount: totalPieces, elapsedSeconds, moves, hintsUsed, rotationEnabled: props.behavior.rotation }),
   };
   const lowTime = props.timer.mode === "countdown" && clock <= Math.min(30, Math.ceil(initialCountdown * 0.15));
+  const selectedPiece = selectedId ? findPiece(selectedId) : null;
 
   return (
     <main className="game-page">
@@ -253,61 +290,82 @@ export function GameScreen(props: GameScreenProps) {
       <section className={`play-area ${status.type === "paused" ? "paused" : ""}`}>
         <div className="board-column">
           <div className="board-heading"><div><span className="section-kicker">Puzzle board</span><h1>Find every perfect spot</h1></div><span>{correctCount} of {totalPieces} placed</span></div>
-          <div
-            className={`puzzle-board ${props.assistance.showGridLines ? "grid-lines" : ""}`}
-            style={{ gridTemplateColumns: `repeat(${props.grid.columns}, 1fr)`, aspectRatio: `${props.grid.columns} / ${props.grid.rows}` }}
-            aria-label={`Puzzle board with ${totalPieces} positions`}
-          >
-            {board.map((piece, index) => {
-              const correct = isCorrect(piece, index);
-              const locked = correct && props.assistance.lockCorrect;
-              return (
-                <button
-                  key={index}
-                  className={`board-slot ${piece ? "filled" : ""} ${correct && props.assistance.highlightCorrect ? "correct" : ""} ${hintIndex === index ? "hinted" : ""} ${invalidIndex === index ? "invalid" : ""} ${piece?.id === selectedId ? "selected" : ""}`}
-                  onClick={() => piece ? setSelectedId(piece.id) : selectedId && placePiece(selectedId, index)}
-                  onDoubleClick={() => { if (piece) rotatePiece(piece.id); }}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => { event.preventDefault(); placePiece(event.dataTransfer.getData("text/piece-id"), index); }}
-                  aria-label={piece ? `Position ${index + 1}, occupied${correct ? ", correct" : ""}` : `Empty position ${index + 1}`}
-                  disabled={status.type !== "playing" || locked}
-                >
-                  {piece && <img src={piece.imageUrl} alt="" draggable={!locked} onDragStart={(event) => event.dataTransfer.setData("text/piece-id", piece.id)} style={{ transform: `rotate(${piece.rotation}deg)` }} />}
-                  {correct && props.assistance.highlightCorrect && <i aria-hidden="true">✓</i>}
-                  {hintIndex === index && <span className="hint-label">Place here</span>}
-                </button>
-              );
-            })}
+          <div className="board-stage" ref={boardStageRef}>
+            <div
+              className={`puzzle-board ${props.assistance.showGridLines ? "grid-lines" : ""} ${selectedId ? "piece-active" : ""}`}
+              style={{
+                gridTemplateColumns: `repeat(${props.grid.columns}, 1fr)`,
+                gridTemplateRows: `repeat(${props.grid.rows}, 1fr)`,
+                width: boardSize.width,
+                height: boardSize.height,
+              }}
+              aria-label={`Puzzle board with ${totalPieces} positions`}
+            >
+              {board.map((piece, index) => {
+                const correct = isCorrect(piece, index);
+                const locked = correct && props.assistance.lockCorrect;
+                return (
+                  <button
+                    key={index}
+                    className={`board-slot ${piece ? "filled" : ""} ${!piece && selectedId ? "ready" : ""} ${correct && props.assistance.highlightCorrect ? "correct" : ""} ${hintIndex === index ? "hinted" : ""} ${invalidIndex === index ? "invalid" : ""} ${piece?.id === selectedId ? "selected" : ""}`}
+                    onClick={() => piece ? setSelectedId(piece.id) : selectedId && placePiece(selectedId, index)}
+                    onDoubleClick={() => { if (piece) rotatePiece(piece.id); }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => { event.preventDefault(); placePiece(event.dataTransfer.getData("text/piece-id"), index); }}
+                    aria-label={piece ? `Position ${index + 1}, occupied${correct ? ", correct" : ""}` : `Empty position ${index + 1}${selectedId ? ", ready for selected piece" : ""}`}
+                    disabled={status.type !== "playing" || locked}
+                  >
+                    {piece && <img src={piece.imageUrl} alt="" draggable={!locked} onDragStart={(event) => event.dataTransfer.setData("text/piece-id", piece.id)} style={{ transform: `rotate(${piece.rotation}deg)` }} />}
+                    {correct && props.assistance.highlightCorrect && <i aria-hidden="true">✓</i>}
+                    {hintIndex === index && <span className="hint-label">Place here</span>}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <p className="board-help">Tap a piece, then tap its spot. You can also drag pieces or use Enter with the keyboard.</p>
+          <p className={`board-help ${selectedPiece ? "active" : ""}`} aria-live="polite">
+            {invalidIndex !== null
+              ? "Not quite — that piece belongs somewhere else. Try another space."
+              : selectedPiece
+                ? "Piece selected — now tap a highlighted board space."
+                : "Choose a piece from the tray, then tap its spot. Drag and keyboard controls work too."}
+          </p>
         </div>
 
         <aside className="game-sidebar">
-          {referenceVisible && props.assistance.reference !== "disabled" && <div className="reference-card"><div><span>Reference</span><button onClick={() => props.assistance.reference !== "always" && setReferenceVisible(false)} aria-label="Hide reference"><EyeOff size={16} /></button></div><img src={props.image.url} alt="Reference for the completed puzzle" /></div>}
           <div className="pal-card"><img src={`/assets/avatar-${props.avatar}.png`} alt="" /><div><strong>{correctCount === 0 ? "Let’s start!" : progress < 75 ? "You’ve got this!" : "Almost there!"}</strong><span>{selectedId ? "Now tap a spot on the board." : "Pick a piece from the tray."}</span></div></div>
+          <section className="tray-card" aria-labelledby="tray-title">
+            <div className="tray-heading">
+              <div><span className="section-kicker">Piece tray</span><h2 id="tray-title">Choose a piece</h2></div>
+              <span>{tray.length} left</span>
+            </div>
+            {selectedPiece && (
+              <div className="selected-piece-status">
+                <img src={selectedPiece.imageUrl} alt="" style={{ transform: `rotate(${selectedPiece.rotation}deg)` }} />
+                <span><strong>Piece selected</strong><small>Tap a board space to place it</small></span>
+              </div>
+            )}
+            <div className="piece-tray" aria-label={`${tray.length} puzzle pieces remaining`}>
+              {tray.map((piece) => (
+                <button
+                  key={piece.id}
+                  className={`tray-piece ${piece.id === selectedId ? "selected" : ""}`}
+                  onClick={() => setSelectedId(piece.id === selectedId ? null : piece.id)}
+                  onDoubleClick={() => rotatePiece(piece.id)}
+                  draggable
+                  onDragStart={(event) => event.dataTransfer.setData("text/piece-id", piece.id)}
+                  aria-label={`Puzzle piece ${piece.correctIndex + 1}${piece.id === selectedId ? ", selected" : ""}`}
+                >
+                  <img src={piece.imageUrl} alt="" style={{ transform: `rotate(${piece.rotation}deg)` }} />
+                </button>
+              ))}
+              {!loading && tray.length === 0 && <p>All pieces are on the board!</p>}
+            </div>
+          </section>
+          {referenceVisible && props.assistance.reference !== "disabled" && <div className="reference-card"><div><span>Reference</span><button onClick={() => props.assistance.reference !== "always" && setReferenceVisible(false)} aria-label="Hide reference"><EyeOff size={16} /></button></div><img src={props.image.url} alt="Reference for the completed puzzle" /></div>}
         </aside>
 
         {status.type === "paused" && <div className="pause-overlay"><span><Pause /></span><h2>Puzzle paused</h2><p>Your timer is taking a break, too.</p><button className="primary-button" onClick={() => setStatus({ type: "playing" })}><Play size={18} /> Keep puzzling</button></div>}
-      </section>
-
-      <section className="tray-section">
-        <div className="tray-heading"><div><span className="section-kicker">Piece tray</span><h2>Choose your next piece</h2></div><span>{tray.length} remaining</span></div>
-        <div className="piece-tray" aria-label={`${tray.length} puzzle pieces remaining`}>
-          {tray.map((piece) => (
-            <button
-              key={piece.id}
-              className={`tray-piece ${piece.id === selectedId ? "selected" : ""}`}
-              onClick={() => setSelectedId(piece.id === selectedId ? null : piece.id)}
-              onDoubleClick={() => rotatePiece(piece.id)}
-              draggable
-              onDragStart={(event) => event.dataTransfer.setData("text/piece-id", piece.id)}
-              aria-label={`Puzzle piece ${piece.correctIndex + 1}${piece.id === selectedId ? ", selected" : ""}`}
-            >
-              <img src={piece.imageUrl} alt="" style={{ transform: `rotate(${piece.rotation}deg)` }} />
-            </button>
-          ))}
-          {!loading && tray.length === 0 && <p>All pieces are on the board!</p>}
-        </div>
       </section>
 
       {loading && <div className="loading-overlay"><div className="loading-piece">✚</div><h2>Cutting your puzzle…</h2><p>One tiny piece at a time.</p></div>}
