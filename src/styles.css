@@ -561,6 +561,180 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
 .tray-piece:hover { transform: translateY(-3px); }.tray-piece.selected { border-color: var(--blue); background: #eaf6ff; transform: translateY(-4px); box-shadow: 0 6px 14px rgba(76,169,235,.23); }
 .tray-piece img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
 .piece-tray > p { grid-column: 1 / -1; align-self: center; justify-self: center; color: var(--muted); }
+
+/* Freeform jigsaw board */
+.freeform-layout {
+  width: min(1480px, calc(100% - 30px));
+  margin: 24px auto 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 22px;
+  align-items: start;
+}
+.freeform-main { min-width: 0; }
+.free-puzzle-surface {
+  position: relative;
+  width: 100%;
+  height: min(680px, calc(100vh - 245px));
+  min-height: 430px;
+  overflow: hidden;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(255,255,255,.92), transparent 28%),
+    radial-gradient(circle at 82% 75%, rgba(226,218,246,.6), transparent 32%),
+    linear-gradient(145deg, #f9f7fc, #eee9f5);
+  box-shadow:
+    inset 0 0 70px rgba(86, 59, 138, .055),
+    0 16px 42px rgba(55, 35, 92, .08);
+  isolation: isolate;
+  touch-action: none;
+}
+.free-puzzle-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: .24;
+  background-image: url("data:image/svg+xml,%3Csvg width='88' height='88' viewBox='0 0 88 88' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.055'/%3E%3C/svg%3E");
+}
+.free-puzzle-surface.ready-to-place { cursor: crosshair; }
+.free-puzzle-surface.ready-to-place::after {
+  content: "Tap anywhere to place the selected piece";
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 10000;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 8px 14px;
+  border-radius: 99px;
+  color: white;
+  background: rgba(78, 48, 157, .9);
+  box-shadow: 0 8px 20px rgba(55, 29, 120, .22);
+  font-size: .7rem;
+  font-weight: 800;
+  pointer-events: none;
+}
+.surface-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #a39aac;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+.surface-message svg { width: 26px; height: 26px; opacity: .65; }
+.surface-message span { display: flex; flex-direction: column; }
+.surface-message strong { font-size: .82rem; }
+.surface-message small { font-size: .67rem; }
+.free-puzzle-surface:has(.free-piece) .surface-message { opacity: .24; }
+.free-piece-group {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.free-piece {
+  position: absolute;
+  display: block;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: filter .16s ease;
+}
+.free-piece img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 4px 4px rgba(32, 19, 53, .28));
+  transform-origin: center;
+}
+.free-piece:hover img { filter: drop-shadow(0 7px 6px rgba(32, 19, 53, .34)) brightness(1.035); }
+.free-piece-group.selected .free-piece img {
+  filter:
+    drop-shadow(0 0 2px white)
+    drop-shadow(0 0 6px rgba(76, 169, 235, .9))
+    drop-shadow(0 6px 5px rgba(32, 19, 53, .25));
+}
+.free-piece-group.connected .free-piece img {
+  filter: drop-shadow(0 5px 4px rgba(32, 19, 53, .24));
+}
+.free-piece:focus-visible {
+  outline: 0;
+}
+.free-piece:focus-visible img {
+  filter:
+    drop-shadow(0 0 2px white)
+    drop-shadow(0 0 7px rgba(76, 169, 235, .95));
+}
+.freeform-help {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 31px;
+  margin: 10px auto 0;
+  padding: 6px 12px;
+  border-radius: 99px;
+  color: var(--purple-dark);
+  background: var(--purple-soft);
+  text-align: center;
+  font-size: .69rem;
+  font-weight: 800;
+}
+.freeform-sidebar {
+  height: min(680px, calc(100vh - 245px));
+  min-height: 430px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  position: sticky;
+  top: 92px;
+}
+.freeform-sidebar .tray-card { min-height: 210px; }
+.freeform-sidebar .reference-card img { max-height: 135px; }
+.jigsaw-tray {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 10px;
+  gap: 10px;
+}
+.tray-piece.jigsaw-tray-piece {
+  min-width: 0;
+  padding: 0;
+  overflow: visible;
+  border-color: transparent;
+  background: transparent;
+}
+.tray-piece.jigsaw-tray-piece:hover {
+  background: transparent;
+  transform: translateY(-3px) scale(1.035);
+}
+.tray-piece.jigsaw-tray-piece.selected {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transform: translateY(-4px) scale(1.045);
+}
+.jigsaw-tray-piece img {
+  filter: drop-shadow(0 3px 3px rgba(38, 22, 62, .28));
+}
+.jigsaw-tray-piece.selected img {
+  filter:
+    drop-shadow(0 0 2px white)
+    drop-shadow(0 0 7px rgba(76, 169, 235, .95))
+    drop-shadow(0 5px 4px rgba(38, 22, 62, .22));
+}
+
 .pause-overlay, .loading-overlay {
   position: fixed;
   inset: 0;
@@ -614,6 +788,12 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
   .game-sidebar .tray-card { grid-column: 2; grid-row: 1 / span 2; max-height: 440px; }
   .game-sidebar .reference-card { grid-column: 1; }
   .game-stats > span { min-width: 82px; }.game-meta { display: none; }
+  .freeform-layout { grid-template-columns: 1fr; }
+  .free-puzzle-surface { height: min(620px, calc(100vh - 230px)); }
+  .freeform-sidebar { height: auto; min-height: 0; position: static; display: grid; grid-template-columns: 220px minmax(0, 1fr); align-items: start; }
+  .freeform-sidebar .pal-card { grid-column: 1; }
+  .freeform-sidebar .tray-card { grid-column: 2; grid-row: 1 / span 2; max-height: 430px; }
+  .freeform-sidebar .reference-card { grid-column: 1; }
 }
 
 @media (max-width: 720px) {
@@ -641,6 +821,13 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
   .piece-tray { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: 340px; padding: 8px; gap: 6px; }
   .tray-piece { min-width: 0; }
   .result-stats { grid-template-columns: 1fr 1fr; }.result-actions { grid-template-columns: 1fr; }
+  .freeform-layout { width: calc(100% - 16px); margin-top: 18px; }
+  .free-puzzle-surface { height: min(520px, calc(100vh - 210px)); min-height: 350px; border-radius: 19px; }
+  .freeform-sidebar { display: flex; flex-direction: column; }
+  .freeform-sidebar .pal-card, .freeform-sidebar .tray-card, .freeform-sidebar .reference-card { width: 100%; max-height: none; }
+  .freeform-sidebar .tray-card { min-height: 310px; }
+  .jigsaw-tray { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: 330px; }
+  .free-puzzle-surface.ready-to-place::after { bottom: 10px; font-size: .62rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

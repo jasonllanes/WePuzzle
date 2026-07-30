@@ -1,6 +1,6 @@
 # WePuzzle
 
-WePuzzle is a polished, responsive, browser-only jigsaw game built with React, TypeScript, and the Vite-powered vinext runtime. Players can use the included cozy starter image or upload a JPG, PNG, or WebP, choose a puzzle pal, select a preset or custom challenge, and solve the generated puzzle with drag, touch/tap, or keyboard controls.
+WePuzzle is a polished, responsive, browser-only jigsaw game built with React, TypeScript, and the Vite-powered vinext runtime. Players can use the included cozy starter image or upload a JPG, PNG, or WebP, choose a puzzle pal, select a preset or custom challenge, and solve real interlocking puzzle shapes with drag, touch/tap, or keyboard controls. Matching pieces snap together and connected groups remain freely draggable.
 
 ## Run locally
 
@@ -20,7 +20,7 @@ npm run start
 
 - `src/components` — landing, setup, settings, game, and results interfaces
 - `src/utils/imageProcessor.ts` — local file validation and browser image decoding
-- `src/utils/puzzleGenerator.ts` — Canvas-based image slicing and piece shuffling
+- `src/utils/puzzleGenerator.ts` — Canvas-based interlocking piece shaping, image clipping, and shuffling
 - `src/utils/scoreCalculator.ts` — isolated, typed score formula
 - `src/utils/settingsValidator.ts` — custom grid, timer, and hint validation
 - `src/hooks/useLocalStorage.ts` — persistent avatar and custom settings
