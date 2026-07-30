@@ -1,5 +1,8 @@
 node_modules/
 dist/
+.next/
+.vinext/
+.wrangler/
 .DS_Store
 *.local
 *.log

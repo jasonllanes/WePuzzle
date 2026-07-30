@@ -1,3 +1,5 @@
+"use client";
+
 import { useMemo, useState } from "react";
 import { DIFFICULTIES, DEFAULT_CUSTOM_SETTINGS } from "./data";
 import { useLocalStorage } from "./hooks/useLocalStorage";
