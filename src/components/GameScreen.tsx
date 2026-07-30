@@ -11,6 +11,10 @@ import {
   RotateCw,
   Timer,
   Undo2,
+  Volume2,
+  VolumeX,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -26,6 +30,7 @@ import type {
   PuzzleResult,
   TimerSettings,
 } from "../types";
+import { useGameAudio } from "../hooks/useGameAudio";
 import { formatTime } from "../utils/format";
 import { generatePuzzlePieces } from "../utils/puzzleGenerator";
 import { calculateScore } from "../utils/scoreCalculator";
@@ -71,6 +76,19 @@ interface DragState {
   startOriginX: number;
   startOriginY: number;
   moved: boolean;
+}
+
+interface SnapOutcome {
+  groups: PieceGroup[];
+  matches: number;
+}
+
+interface ComboEffect {
+  id: string;
+  x: number;
+  y: number;
+  label: string;
+  multiplier: number;
 }
 
 const nextRotation: Record<PieceRotation, PieceRotation> = { 0: 90, 90: 180, 180: 270, 270: 0 };
@@ -123,18 +141,34 @@ export function GameScreen(props: GameScreenProps) {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [imageAspectRatio, setImageAspectRatio] = useState(1);
   const [connectorRatio, setConnectorRatio] = useState(0.22);
-  const [surfaceSize, setSurfaceSize] = useState<SurfaceSize>({ width: 960, height: 620 });
+  const [viewportSize, setViewportSize] = useState<SurfaceSize>({ width: 960, height: 620 });
+  const [zoom, setZoom] = useState(1);
   const [status, setStatus] = useState<GameStatus>({ type: "playing" });
   const [moves, setMoves] = useState(0);
   const [hintsUsed, setHintsUsed] = useState(0);
+  const [combo, setCombo] = useState(0);
+  const [multiplier, setMultiplier] = useState(1);
+  const [comboBonus, setComboBonus] = useState(0);
+  const [comboEffects, setComboEffects] = useState<ComboEffect[]>([]);
   const [referenceVisible, setReferenceVisible] = useState(props.assistance.reference === "always");
   const initialCountdown = props.timer.mode === "countdown" ? props.timer.minutes * 60 + props.timer.seconds : 0;
   const [clock, setClock] = useState(props.timer.mode === "countdown" ? initialCountdown : 0);
   const completionHandled = useRef(false);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const nextZIndex = useRef(1);
+  const groupsRef = useRef<PieceGroup[]>([]);
+  const comboRef = useRef(0);
+  const lastSnapAtRef = useRef(0);
+  const comboResetRef = useRef<number | null>(null);
+  const audio = useGameAudio();
   const totalPieces = props.grid.rows * props.grid.columns;
+
+  const worldSize = useMemo<SurfaceSize>(() => ({
+    width: viewportSize.width * zoom,
+    height: viewportSize.height * zoom,
+  }), [viewportSize, zoom]);
 
   const pieceMap = useMemo(
     () => new Map(pieces.map((piece) => [piece.id, piece])),
@@ -142,8 +176,8 @@ export function GameScreen(props: GameScreenProps) {
   );
 
   const metrics = useMemo<SolutionMetrics>(() => {
-    const maximumWidth = surfaceSize.width * 0.76;
-    const maximumHeight = surfaceSize.height * 0.76;
+    const maximumWidth = worldSize.width * 0.76;
+    const maximumHeight = worldSize.height * 0.76;
     let width = maximumWidth;
     let height = width / imageAspectRatio;
     if (height > maximumHeight) {
@@ -159,7 +193,7 @@ export function GameScreen(props: GameScreenProps) {
       cellHeight,
       overlap: Math.min(cellWidth, cellHeight) * connectorRatio,
     };
-  }, [connectorRatio, imageAspectRatio, props.grid.columns, props.grid.rows, surfaceSize]);
+  }, [connectorRatio, imageAspectRatio, props.grid.columns, props.grid.rows, worldSize]);
 
   const largestGroupSize = useMemo(
     () => groups.reduce((largest, group) => Math.max(largest, group.pieceIds.length), 0),
@@ -187,12 +221,19 @@ export function GameScreen(props: GameScreenProps) {
         setPieces(generated.pieces);
         setTrayIds(generated.pieces.map((piece) => piece.id));
         setGroups([]);
+        groupsRef.current = [];
         setSelectedPieceId(null);
         setSelectedGroupId(null);
         setImageAspectRatio(generated.aspectRatio);
         setConnectorRatio(generated.connectorRatio);
         setMoves(0);
         setHintsUsed(0);
+        setCombo(0);
+        comboRef.current = 0;
+        setMultiplier(1);
+        setComboBonus(0);
+        setComboEffects([]);
+        setZoom(1);
         setClock(props.timer.mode === "countdown" ? initialCountdown : 0);
         setStatus({ type: "playing" });
         setLoading(false);
@@ -210,7 +251,7 @@ export function GameScreen(props: GameScreenProps) {
     const surface = surfaceRef.current;
     if (!surface) return;
     const measure = () => {
-      setSurfaceSize({
+      setViewportSize({
         width: Math.max(1, surface.clientWidth),
         height: Math.max(1, surface.clientHeight),
       });
@@ -245,9 +286,14 @@ export function GameScreen(props: GameScreenProps) {
     const completeGroup = groups.find((group) => group.pieceIds.length === totalPieces);
     if (completeGroup && trayIds.length === 0 && !loading && !completionHandled.current) {
       completionHandled.current = true;
+      audio.playComplete();
       setStatus({ type: "completed" });
     }
-  }, [groups, loading, totalPieces, trayIds.length]);
+  }, [audio, groups, loading, totalPieces, trayIds.length]);
+
+  useEffect(() => () => {
+    if (comboResetRef.current !== null) window.clearTimeout(comboResetRef.current);
+  }, []);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -268,25 +314,27 @@ export function GameScreen(props: GameScreenProps) {
     });
   }, [pieceMap]);
 
-  const snapGroupList = useCallback((currentGroups: PieceGroup[], activeGroupId: string): PieceGroup[] => {
+  const snapGroupList = useCallback((currentGroups: PieceGroup[], activeGroupId: string): SnapOutcome => {
     let working = [...currentGroups];
     let active = working.find((group) => group.id === activeGroupId);
-    if (!active) return working;
+    if (!active) return { groups: working, matches: 0 };
+    let matches = 0;
     const toleranceMultiplier = { strict: 0.18, normal: 0.32, forgiving: 0.5 }[props.behavior.snap];
     const tolerance = Math.min(metrics.cellWidth, metrics.cellHeight) * toleranceMultiplier;
 
     while (active) {
-      const activeX = active.originX * surfaceSize.width;
-      const activeY = active.originY * surfaceSize.height;
+      const activeX = active.originX * worldSize.width;
+      const activeY = active.originY * worldSize.height;
       const candidate = working.find((group) => {
         if (group.id === active!.id || !groupsCanConnect(active!, group)) return false;
         const distance = Math.hypot(
-          activeX - group.originX * surfaceSize.width,
-          activeY - group.originY * surfaceSize.height,
+          activeX - group.originX * worldSize.width,
+          activeY - group.originY * worldSize.height,
         );
         return distance <= tolerance;
       });
       if (!candidate) break;
+      matches += 1;
 
       active = {
         ...active,
@@ -298,28 +346,87 @@ export function GameScreen(props: GameScreenProps) {
       working = working.filter((group) => group.id !== active!.id && group.id !== candidate.id);
       working.push(active);
     }
-    return working;
-  }, [groupsCanConnect, metrics.cellHeight, metrics.cellWidth, props.behavior.snap, surfaceSize.height, surfaceSize.width]);
+    return { groups: working, matches };
+  }, [groupsCanConnect, metrics.cellHeight, metrics.cellWidth, props.behavior.snap, worldSize.height, worldSize.width]);
+
+  const registerCombo = (matches: number, clientX?: number, clientY?: number) => {
+    if (matches <= 0) return;
+    const now = Date.now();
+    const nextCombo = now - lastSnapAtRef.current <= 5_500 ? comboRef.current + 1 : 1;
+    const nextMultiplier = nextCombo >= 8 ? 5 : nextCombo >= 6 ? 4 : nextCombo >= 4 ? 3 : nextCombo >= 2 ? 2 : 1;
+    const labels = ["Good!", "Great!", "Awesome!", "Sweet!", "Fantastic!", "Amazing!", "Brilliant!", "Puzzle power!"];
+    const world = worldRef.current;
+    const bounds = world?.getBoundingClientRect();
+    const effectX = bounds && clientX !== undefined
+      ? clamp((clientX - bounds.left) / bounds.width, 0.08, 0.92)
+      : 0.5;
+    const effectY = bounds && clientY !== undefined
+      ? clamp((clientY - bounds.top) / bounds.height, 0.1, 0.9)
+      : 0.45;
+    const effect: ComboEffect = {
+      id: crypto.randomUUID(),
+      x: effectX,
+      y: effectY,
+      label: labels[Math.min(labels.length - 1, nextCombo - 1)]!,
+      multiplier: nextMultiplier,
+    };
+
+    comboRef.current = nextCombo;
+    lastSnapAtRef.current = now;
+    setCombo(nextCombo);
+    setMultiplier(nextMultiplier);
+    setComboBonus((current) => current + matches * 175 * nextMultiplier);
+    setComboEffects((current) => [...current, effect]);
+    audio.playSnap(nextMultiplier);
+    window.setTimeout(() => {
+      setComboEffects((current) => current.filter((entry) => entry.id !== effect.id));
+    }, 1_250);
+
+    if (comboResetRef.current !== null) window.clearTimeout(comboResetRef.current);
+    comboResetRef.current = window.setTimeout(() => {
+      comboRef.current = 0;
+      setCombo(0);
+      setMultiplier(1);
+    }, 6_000);
+  };
+
+  const changeZoom = (amount: number) => {
+    const surface = surfaceRef.current;
+    const nextZoom = clamp(Math.round((zoom + amount) * 10) / 10, 0.8, 2);
+    if (!surface || nextZoom === zoom) return;
+    const centerX = (surface.scrollLeft + surface.clientWidth / 2) / worldSize.width;
+    const centerY = (surface.scrollTop + surface.clientHeight / 2) / worldSize.height;
+    setZoom(nextZoom);
+    window.requestAnimationFrame(() => {
+      surface.scrollLeft = centerX * viewportSize.width * nextZoom - surface.clientWidth / 2;
+      surface.scrollTop = centerY * viewportSize.height * nextZoom - surface.clientHeight / 2;
+    });
+  };
 
   const placePieceAt = (pieceId: string, clientX: number, clientY: number) => {
     if (status.type !== "playing" || !trayIds.includes(pieceId)) return;
     const piece = pieceMap.get(pieceId);
     const surface = surfaceRef.current;
-    if (!piece || !surface) return;
-    const bounds = surface.getBoundingClientRect();
+    const world = worldRef.current;
+    if (!piece || !surface || !world) return;
+    audio.activate();
+    const bounds = world.getBoundingClientRect();
     const localX = clamp(clientX - bounds.left, 0, bounds.width);
     const localY = clamp(clientY - bounds.top, 0, bounds.height);
     const groupId = `group-${crypto.randomUUID()}`;
     const group = clampGroup({
       id: groupId,
       pieceIds: [pieceId],
-      originX: (localX - piece.column * metrics.cellWidth - metrics.cellWidth / 2) / surfaceSize.width,
-      originY: (localY - piece.row * metrics.cellHeight - metrics.cellHeight / 2) / surfaceSize.height,
+      originX: (localX - piece.column * metrics.cellWidth - metrics.cellWidth / 2) / worldSize.width,
+      originY: (localY - piece.row * metrics.cellHeight - metrics.cellHeight / 2) / worldSize.height,
       zIndex: ++nextZIndex.current,
-    }, pieceMap, surfaceSize, metrics);
+    }, pieceMap, worldSize, metrics);
 
     setTrayIds((current) => current.filter((id) => id !== pieceId));
-    setGroups((current) => snapGroupList([...current, group], groupId));
+    const snapOutcome = snapGroupList([...groupsRef.current, group], groupId);
+    groupsRef.current = snapOutcome.groups;
+    setGroups(snapOutcome.groups);
+    registerCombo(snapOutcome.matches, clientX, clientY);
     setSelectedPieceId(pieceId);
     setSelectedGroupId(groupId);
     setMoves((value) => value + 1);
@@ -331,10 +438,13 @@ export function GameScreen(props: GameScreenProps) {
     group: PieceGroup,
   ) => {
     if (status.type !== "playing") return;
+    audio.activate();
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const zIndex = ++nextZIndex.current;
-    setGroups((current) => current.map((entry) => entry.id === group.id ? { ...entry, zIndex } : entry));
+    const raisedGroups = groupsRef.current.map((entry) => entry.id === group.id ? { ...entry, zIndex } : entry);
+    groupsRef.current = raisedGroups;
+    setGroups(raisedGroups);
     setSelectedPieceId(pieceId);
     setSelectedGroupId(group.id);
     dragRef.current = {
@@ -354,14 +464,16 @@ export function GameScreen(props: GameScreenProps) {
     const deltaX = event.clientX - drag.startClientX;
     const deltaY = event.clientY - drag.startClientY;
     if (Math.abs(deltaX) + Math.abs(deltaY) > 3) drag.moved = true;
-    setGroups((current) => current.map((group) => {
+    const movedGroups = groupsRef.current.map((group) => {
       if (group.id !== drag.groupId) return group;
       return clampGroup({
         ...group,
-        originX: drag.startOriginX + deltaX / surfaceSize.width,
-        originY: drag.startOriginY + deltaY / surfaceSize.height,
-      }, pieceMap, surfaceSize, metrics);
-    }));
+        originX: drag.startOriginX + deltaX / worldSize.width,
+        originY: drag.startOriginY + deltaY / worldSize.height,
+      }, pieceMap, worldSize, metrics);
+    });
+    groupsRef.current = movedGroups;
+    setGroups(movedGroups);
   };
 
   const endGroupDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -370,23 +482,27 @@ export function GameScreen(props: GameScreenProps) {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    setGroups((current) => snapGroupList(current, drag.groupId));
+    const snapOutcome = snapGroupList(groupsRef.current, drag.groupId);
+    groupsRef.current = snapOutcome.groups;
+    setGroups(snapOutcome.groups);
+    registerCombo(snapOutcome.matches, event.clientX, event.clientY);
     if (drag.moved) setMoves((value) => value + 1);
     dragRef.current = null;
   };
 
   const nudgeGroup = (groupId: string, deltaX: number, deltaY: number) => {
     if (status.type !== "playing") return;
-    setGroups((current) => {
-      const moved = current.map((group) => group.id === groupId
-        ? clampGroup({
-          ...group,
-          originX: group.originX + deltaX / surfaceSize.width,
-          originY: group.originY + deltaY / surfaceSize.height,
-        }, pieceMap, surfaceSize, metrics)
-        : group);
-      return snapGroupList(moved, groupId);
-    });
+    const moved = groupsRef.current.map((group) => group.id === groupId
+      ? clampGroup({
+        ...group,
+        originX: group.originX + deltaX / worldSize.width,
+        originY: group.originY + deltaY / worldSize.height,
+      }, pieceMap, worldSize, metrics)
+      : group);
+    const snapOutcome = snapGroupList(moved, groupId);
+    groupsRef.current = snapOutcome.groups;
+    setGroups(snapOutcome.groups);
+    registerCombo(snapOutcome.matches);
     setMoves((value) => value + 1);
   };
 
@@ -413,7 +529,9 @@ export function GameScreen(props: GameScreenProps) {
 
   const returnSelected = () => {
     if (!selectedGroup || status.type !== "playing") return;
-    setGroups((current) => current.filter((group) => group.id !== selectedGroup.id));
+    const remainingGroups = groupsRef.current.filter((group) => group.id !== selectedGroup.id);
+    groupsRef.current = remainingGroups;
+    setGroups(remainingGroups);
     setTrayIds((current) => [...current, ...selectedGroup.pieceIds.filter((id) => !current.includes(id))]);
     setSelectedPieceId(null);
     setSelectedGroupId(null);
@@ -443,14 +561,17 @@ export function GameScreen(props: GameScreenProps) {
       if (matchingGroup) {
         const connectedIds = [...targetGroup.pieceIds, ...matchingGroup.pieceIds];
         setPieces((current) => current.map((piece) => connectedIds.includes(piece.id) ? { ...piece, rotation: 0 } : piece));
-        setGroups((current) => [
-          ...current.filter((group) => group.id !== targetGroup.id && group.id !== matchingGroup.id),
+        const connectedGroups = [
+          ...groupsRef.current.filter((group) => group.id !== targetGroup.id && group.id !== matchingGroup.id),
           {
             ...targetGroup,
             pieceIds: connectedIds,
             zIndex: ++nextZIndex.current,
           },
-        ]);
+        ];
+        groupsRef.current = connectedGroups;
+        setGroups(connectedGroups);
+        registerCombo(1);
         setSelectedPieceId(connectedIds[0] ?? null);
         setSelectedGroupId(targetGroup.id);
         return;
@@ -466,9 +587,12 @@ export function GameScreen(props: GameScreenProps) {
       if (matchingTrayId) {
         setPieces((current) => current.map((piece) => piece.id === matchingTrayId ? { ...piece, rotation: 0 } : piece));
         setTrayIds((current) => current.filter((id) => id !== matchingTrayId));
-        setGroups((current) => current.map((group) => group.id === targetGroup.id
+        const connectedGroups = groupsRef.current.map((group) => group.id === targetGroup.id
           ? { ...group, pieceIds: [...group.pieceIds, matchingTrayId], zIndex: ++nextZIndex.current }
-          : group));
+          : group);
+        groupsRef.current = connectedGroups;
+        setGroups(connectedGroups);
+        registerCombo(1);
         setSelectedPieceId(matchingTrayId);
         setSelectedGroupId(targetGroup.id);
       }
@@ -505,7 +629,7 @@ export function GameScreen(props: GameScreenProps) {
       moves,
       hintsUsed,
       rotationEnabled: props.behavior.rotation,
-    }),
+    }) + comboBonus,
   };
   const lowTime = props.timer.mode === "countdown" && clock <= Math.min(30, Math.ceil(initialCountdown * 0.15));
 
@@ -532,6 +656,7 @@ export function GameScreen(props: GameScreenProps) {
         {props.assistance.hintsEnabled && <button onClick={useHint} disabled={hintsUsed >= props.assistance.maxHints}><Lightbulb /> Hint <span>{props.assistance.maxHints - hintsUsed}</span></button>}
         {props.behavior.rotation && <button onClick={rotateSelected} disabled={!canRotateSelected}><RotateCw /> Rotate</button>}
         <button onClick={returnSelected} disabled={!selectedGroup}><Undo2 /> {selectedGroup && selectedGroup.pieceIds.length > 1 ? "Return group" : "Return piece"}</button>
+        <button className={audio.enabled ? "audio-active" : ""} onClick={audio.toggleAudio}>{audio.enabled ? <Volume2 /> : <VolumeX />} Music {audio.enabled ? "on" : "off"}</button>
         <span className="toolbar-spacer" />
         <button onClick={() => setStatus(status.type === "paused" ? { type: "playing" } : { type: "paused" })}>{status.type === "paused" ? <Play /> : <Pause />} {status.type === "paused" ? "Resume" : "Pause"}</button>
         <button onClick={restart}><RotateCcw /> Restart</button>
@@ -541,7 +666,15 @@ export function GameScreen(props: GameScreenProps) {
         <div className="freeform-main">
           <div className="board-heading">
             <div><span className="section-kicker">Open puzzle space</span><h1>Build it anywhere</h1></div>
-            <span>{connectedCount} of {totalPieces} connected</span>
+            <div className="board-heading-actions">
+              {combo > 0 && <span className="combo-chip"><strong>{combo} combo</strong><b>{multiplier}×</b></span>}
+              <span className="connected-count">{connectedCount} of {totalPieces} connected</span>
+              <div className="zoom-controls" aria-label="Puzzle zoom controls">
+                <button onClick={() => changeZoom(-0.2)} disabled={zoom <= 0.8} aria-label="Zoom out"><ZoomOut /></button>
+                <span>{Math.round(zoom * 100)}%</span>
+                <button onClick={() => changeZoom(0.2)} disabled={zoom >= 2} aria-label="Zoom in"><ZoomIn /></button>
+              </div>
+            </div>
           </div>
           <div
             className={`free-puzzle-surface ${selectedPieceId && trayIds.includes(selectedPieceId) ? "ready-to-place" : ""}`}
@@ -549,6 +682,7 @@ export function GameScreen(props: GameScreenProps) {
             role="application"
             tabIndex={0}
             aria-label="Open puzzle surface. Drop pieces anywhere and connect matching edges."
+            onPointerDown={() => audio.activate()}
             onClick={(event) => {
               if (!selectedPieceId || !trayIds.includes(selectedPieceId)) return;
               if ((event.target as HTMLElement).closest(".free-piece-group")) return;
@@ -561,44 +695,62 @@ export function GameScreen(props: GameScreenProps) {
               placePieceAt(selectedPieceId, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
             }}
             onDragOver={(event) => event.preventDefault()}
+            onWheel={(event) => {
+              if (!event.ctrlKey) return;
+              event.preventDefault();
+              changeZoom(event.deltaY > 0 ? -0.1 : 0.1);
+            }}
             onDrop={(event) => {
               event.preventDefault();
               const pieceId = event.dataTransfer.getData("text/piece-id");
               if (pieceId) placePieceAt(pieceId, event.clientX, event.clientY);
             }}
           >
-            <div className="surface-message" aria-hidden="true">
-              <Hand />
-              <span><strong>Drop pieces anywhere</strong><small>Matching edges snap together</small></span>
-            </div>
-            {groups.map((group) => (
-              <div className={`free-piece-group ${group.id === selectedGroupId ? "selected" : ""} ${group.pieceIds.length > 1 ? "connected" : ""}`} key={group.id} style={{ zIndex: group.zIndex }}>
-                {group.pieceIds.map((pieceId) => {
-                  const piece = pieceMap.get(pieceId);
-                  if (!piece) return null;
-                  return (
-                    <button
-                      className="free-piece"
-                      key={piece.id}
-                      style={{
-                        left: group.originX * surfaceSize.width + piece.column * metrics.cellWidth - metrics.overlap,
-                        top: group.originY * surfaceSize.height + piece.row * metrics.cellHeight - metrics.overlap,
-                        width: metrics.cellWidth + metrics.overlap * 2,
-                        height: metrics.cellHeight + metrics.overlap * 2,
-                      }}
-                      onPointerDown={(event) => startGroupDrag(event, piece.id, group)}
-                      onPointerMove={moveGroup}
-                      onPointerUp={endGroupDrag}
-                      onPointerCancel={endGroupDrag}
-                      onKeyDown={(event) => handlePieceKeyDown(event, group.id)}
-                      aria-label={`Puzzle piece ${piece.correctIndex + 1}${group.pieceIds.length > 1 ? `, connected group of ${group.pieceIds.length}` : ""}`}
-                    >
-                      <img src={piece.imageUrl} alt="" draggable={false} style={{ transform: `rotate(${piece.rotation}deg)` }} />
-                    </button>
-                  );
-                })}
+            <div
+              className="surface-world"
+              ref={worldRef}
+              style={{ width: worldSize.width, height: worldSize.height }}
+            >
+              <div className="surface-message" aria-hidden="true">
+                <Hand />
+                <span><strong>Drop pieces anywhere</strong><small>Matching edges snap together</small></span>
               </div>
-            ))}
+              {groups.map((group) => (
+                <div className={`free-piece-group ${group.id === selectedGroupId ? "selected" : ""} ${group.pieceIds.length > 1 ? "connected" : ""}`} key={group.id} style={{ zIndex: group.zIndex }}>
+                  {group.pieceIds.map((pieceId) => {
+                    const piece = pieceMap.get(pieceId);
+                    if (!piece) return null;
+                    return (
+                      <button
+                        className="free-piece"
+                        key={piece.id}
+                        style={{
+                          left: group.originX * worldSize.width + piece.column * metrics.cellWidth - metrics.overlap,
+                          top: group.originY * worldSize.height + piece.row * metrics.cellHeight - metrics.overlap,
+                          width: metrics.cellWidth + metrics.overlap * 2,
+                          height: metrics.cellHeight + metrics.overlap * 2,
+                        }}
+                        onPointerDown={(event) => startGroupDrag(event, piece.id, group)}
+                        onPointerMove={moveGroup}
+                        onPointerUp={endGroupDrag}
+                        onPointerCancel={endGroupDrag}
+                        onKeyDown={(event) => handlePieceKeyDown(event, group.id)}
+                        aria-label={`Puzzle piece ${piece.correctIndex + 1}${group.pieceIds.length > 1 ? `, connected group of ${group.pieceIds.length}` : ""}`}
+                      >
+                        <img src={piece.imageUrl} alt="" draggable={false} style={{ transform: `rotate(${piece.rotation}deg)` }} />
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+              {comboEffects.map((effect) => (
+                <div className="combo-burst" key={effect.id} style={{ left: `${effect.x * 100}%`, top: `${effect.y * 100}%` }} aria-live="polite">
+                  <strong>{effect.label}</strong>
+                  {effect.multiplier > 1 && <b>{effect.multiplier}× combo</b>}
+                  {Array.from({ length: 8 }, (_, index) => <i key={index} style={{ "--spark": index } as React.CSSProperties} />)}
+                </div>
+              ))}
+            </div>
           </div>
           <p className="freeform-help" aria-live="polite">
             {selectedPieceId && trayIds.includes(selectedPieceId)

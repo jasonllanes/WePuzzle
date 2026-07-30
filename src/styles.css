@@ -414,6 +414,11 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
 
 /* Game */
 .game-page { min-height: 100vh; background: #f6f3fa; padding-bottom: 52px; }
+.freeform-game {
+  background: linear-gradient(125deg, #f8f3ff, #eaf6ff, #fff4dc, #f5eaff, #e9fbf7);
+  background-size: 360% 360%;
+  animation: gameGradientLoop 20s ease-in-out infinite;
+}
 .game-header {
   min-height: 78px;
   padding: 9px clamp(16px, 3vw, 44px);
@@ -449,6 +454,7 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
 }
 .game-toolbar button { border: 1px solid #e5e0ec; background: #faf9fc; min-height: 37px; padding: 0 11px; border-radius: 10px; display: flex; align-items: center; gap: 6px; font-size: .7rem; font-weight: 800; }
 .game-toolbar svg { width: 15px; }.game-toolbar button > span { background: var(--purple-soft); color: var(--purple); border-radius: 8px; padding: 1px 5px; }
+.game-toolbar button.audio-active { color: #257b67; border-color: #a9dfd2; background: #effbf7; }
 .toolbar-spacer { flex: 1; }
 .play-area { width: min(1460px, calc(100% - 34px)); margin: 30px auto 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; position: relative; align-items: start; }
 .board-column { min-width: 0; }
@@ -572,22 +578,64 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
   align-items: start;
 }
 .freeform-main { min-width: 0; }
+.board-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; }
+.connected-count { color: var(--muted); font-size: .7rem; font-weight: 800; }
+.combo-chip {
+  min-height: 31px;
+  padding: 4px 5px 4px 11px;
+  border-radius: 99px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #793c03;
+  background: linear-gradient(135deg, #fff6be, #ffd467);
+  box-shadow: 0 5px 14px rgba(190, 126, 0, .18);
+  animation: comboChipPop .3s cubic-bezier(.2, 1.5, .45, 1);
+}
+.combo-chip strong { font-size: .67rem; text-transform: uppercase; letter-spacing: .05em; }
+.combo-chip b { min-width: 36px; padding: 3px 7px; border-radius: 99px; color: white; background: #f08a2d; font-family: "Fredoka"; font-size: .78rem; }
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255,255,255,.86);
+  box-shadow: 0 4px 12px rgba(52, 34, 88, .07);
+}
+.zoom-controls button {
+  width: 34px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  color: var(--purple-dark);
+}
+.zoom-controls button:hover:not(:disabled) { background: var(--purple-soft); }
+.zoom-controls button:disabled { opacity: .34; }
+.zoom-controls svg { width: 16px; }
+.zoom-controls > span { min-width: 45px; text-align: center; color: var(--muted); font-size: .64rem; font-weight: 900; }
 .free-puzzle-surface {
   position: relative;
   width: 100%;
   height: min(680px, calc(100vh - 245px));
   min-height: 430px;
-  overflow: hidden;
+  overflow: auto;
   border-radius: 28px;
   background:
     radial-gradient(circle at 18% 20%, rgba(255,255,255,.92), transparent 28%),
     radial-gradient(circle at 82% 75%, rgba(226,218,246,.6), transparent 32%),
-    linear-gradient(145deg, #f9f7fc, #eee9f5);
+    linear-gradient(145deg, #f9f7fc, #eee9f5, #edf8fb, #fff7e7);
+  background-size: 100% 100%, 100% 100%, 320% 320%;
   box-shadow:
     inset 0 0 70px rgba(86, 59, 138, .055),
     0 16px 42px rgba(55, 35, 92, .08);
   isolation: isolate;
-  touch-action: none;
+  touch-action: pan-x pan-y pinch-zoom;
+  scrollbar-color: rgba(122, 90, 200, .35) transparent;
+  scrollbar-width: thin;
+  animation: surfaceGradientLoop 16s ease-in-out infinite;
 }
 .free-puzzle-surface::before {
   content: "";
@@ -626,6 +674,14 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
   color: #a39aac;
   pointer-events: none;
   transition: opacity .2s ease;
+}
+.surface-world {
+  position: relative;
+  min-width: 1px;
+  min-height: 1px;
+  margin: auto;
+  overflow: hidden;
+  isolation: isolate;
 }
 .surface-message svg { width: 26px; height: 26px; opacity: .65; }
 .surface-message span { display: flex; flex-direction: column; }
@@ -734,6 +790,58 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
     drop-shadow(0 0 7px rgba(76, 169, 235, .95))
     drop-shadow(0 5px 4px rgba(38, 22, 62, .22));
 }
+.combo-burst {
+  position: absolute;
+  z-index: 100000;
+  width: 1px;
+  height: 1px;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  pointer-events: none;
+  animation: comboRise 1.25s cubic-bezier(.2, .8, .3, 1) forwards;
+}
+.combo-burst strong {
+  position: relative;
+  z-index: 2;
+  width: max-content;
+  color: white;
+  font-family: "Fredoka";
+  font-size: clamp(1.35rem, 3vw, 2.3rem);
+  line-height: 1;
+  letter-spacing: -.03em;
+  text-shadow:
+    0 3px 0 #6b3fc1,
+    0 0 10px rgba(102, 65, 198, .7),
+    0 5px 16px rgba(48, 26, 93, .38);
+}
+.combo-burst b {
+  position: relative;
+  z-index: 2;
+  width: max-content;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  color: #713c00;
+  background: #ffd45d;
+  box-shadow: 0 4px 0 #e69b2c;
+  font-family: "Fredoka";
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.combo-burst i {
+  --spark: 0;
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: hsl(calc(var(--spark) * 45deg + 25deg) 90% 65%);
+  transform: rotate(calc(var(--spark) * 45deg)) translateY(-20px);
+  animation: comboSpark .8s cubic-bezier(.15, .7, .25, 1) forwards;
+}
 
 .pause-overlay, .loading-overlay {
   position: fixed;
@@ -773,6 +881,29 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
 @keyframes hintGlow { to { box-shadow: inset 0 0 0 5px var(--yellow), 0 0 25px var(--yellow); } }
 @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 @keyframes pulse { 50% { opacity: .55; } }
+@keyframes gameGradientLoop {
+  0%, 100% { background-position: 0% 45%; }
+  50% { background-position: 100% 55%; }
+}
+@keyframes surfaceGradientLoop {
+  0%, 100% { background-position: 0 0, 0 0, 0% 50%; }
+  50% { background-position: 0 0, 0 0, 100% 50%; }
+}
+@keyframes comboChipPop {
+  0% { opacity: 0; transform: scale(.65); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes comboRise {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(.55) rotate(-5deg); }
+  18% { opacity: 1; transform: translate(-50%, -5px) scale(1.12) rotate(2deg); }
+  72% { opacity: 1; transform: translate(-50%, -35px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -70px) scale(.92); }
+}
+@keyframes comboSpark {
+  0% { opacity: 0; transform: rotate(calc(var(--spark) * 45deg)) translateY(-5px) scale(.5); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(calc(var(--spark) * 45deg)) translateY(-58px) scale(1.25); }
+}
 
 @media (max-width: 980px) {
   .hero { grid-template-columns: 1fr 1fr; gap: 30px; }
@@ -822,6 +953,12 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
   .tray-piece { min-width: 0; }
   .result-stats { grid-template-columns: 1fr 1fr; }.result-actions { grid-template-columns: 1fr; }
   .freeform-layout { width: calc(100% - 16px); margin-top: 18px; }
+  .freeform-layout .board-heading { align-items: flex-start; gap: 10px; }
+  .board-heading-actions { max-width: 58%; gap: 6px; }
+  .connected-count { display: none; }
+  .zoom-controls button { width: 42px; height: 40px; }
+  .zoom-controls > span { min-width: 42px; }
+  .combo-chip { order: 2; }
   .free-puzzle-surface { height: min(520px, calc(100vh - 210px)); min-height: 350px; border-radius: 19px; }
   .freeform-sidebar { display: flex; flex-direction: column; }
   .freeform-sidebar .pal-card, .freeform-sidebar .tray-card, .freeform-sidebar .reference-card { width: 100%; max-height: none; }

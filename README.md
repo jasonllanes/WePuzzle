@@ -2,6 +2,8 @@
 
 WePuzzle is a polished, responsive, browser-only jigsaw game built with React, TypeScript, and the Vite-powered vinext runtime. Players can use the included cozy starter image or upload a JPG, PNG, or WebP, choose a puzzle pal, select a preset or custom challenge, and solve real interlocking puzzle shapes with drag, touch/tap, or keyboard controls. Matching pieces snap together and connected groups remain freely draggable.
 
+The game includes an optional Web Audio chiptune and snap sounds, timed praise combos with score multipliers, animated connection effects, a looping pastel background, and a zoomable scrollable play space designed for mobile touch targets.
+
 ## Run locally
 
 ```bash
