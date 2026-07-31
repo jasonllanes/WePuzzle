@@ -919,6 +919,24 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
 .online-icon svg { width: 28px; height: 28px; }
 .online-hero h1 { margin: 8px 0 10px; font-size: clamp(2.5rem, 7vw, 4.2rem); letter-spacing: -.045em; }
 .online-hero p { color: var(--muted); line-height: 1.65; margin: auto; }
+.invite-banner {
+  width: fit-content;
+  max-width: 100%;
+  margin: 20px auto 0;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #cfc0f5;
+  border-radius: 13px;
+  color: var(--purple-dark);
+  background: rgba(255,255,255,.86);
+  box-shadow: 0 8px 22px rgba(79, 49, 151, .1);
+  font-size: .8rem;
+  text-align: left;
+}
+.invite-banner svg { width: 19px; flex: 0 0 auto; }
+.invite-banner span { display: flex; flex-wrap: wrap; gap: 4px; }
 .leaderboard-card {
   max-width: 1000px;
   overflow: hidden;
@@ -1026,7 +1044,8 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
 .room-connection.live { color: #177c65; }
 .room-connection svg { width: 16px; }
 .room-bar > strong { letter-spacing: .12em; color: var(--purple-dark); }
-.room-bar > button { border: 0; border-radius: 8px; background: white; color: var(--purple-dark); padding: 6px 9px; font-size: .68rem; font-weight: 900; }
+.room-bar > button { border: 0; border-radius: 8px; background: white; color: var(--purple-dark); padding: 6px 9px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: .68rem; font-weight: 900; }
+.room-bar > button svg { width: 14px; height: 14px; }
 .room-players { margin-left: auto; display: flex; align-items: center; gap: 6px; overflow-x: auto; }
 .room-players span { display: flex; align-items: center; gap: 5px; max-width: 150px; border-radius: 99px; background: white; padding: 4px 9px 4px 4px; font-size: .68rem; font-weight: 800; white-space: nowrap; }
 .room-players img { width: 25px; height: 25px; object-fit: cover; border-radius: 50%; }

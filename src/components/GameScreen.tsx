@@ -9,6 +9,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  Share2,
   Timer,
   Undo2,
   Volume2,
@@ -161,6 +162,7 @@ export function GameScreen(props: GameScreenProps) {
   const [multiplier, setMultiplier] = useState(1);
   const [comboBonus, setComboBonus] = useState(0);
   const [comboEffects, setComboEffects] = useState<ComboEffect[]>([]);
+  const [inviteShared, setInviteShared] = useState(false);
   const [referenceVisible, setReferenceVisible] = useState(props.assistance.reference === "always");
   const initialCountdown = props.timer.mode === "countdown" ? props.timer.minutes * 60 + props.timer.seconds : 0;
   const [clock, setClock] = useState(props.timer.mode === "countdown" ? initialCountdown : 0);
@@ -734,6 +736,34 @@ export function GameScreen(props: GameScreenProps) {
     setGeneration((value) => value + 1);
   };
 
+  const shareRoomInvite = async () => {
+    if (!props.multiplayerRoom) return;
+    const inviteUrl = new URL(window.location.href);
+    inviteUrl.search = "";
+    inviteUrl.hash = "";
+    inviteUrl.searchParams.set("room", props.multiplayerRoom.code);
+    const url = inviteUrl.toString();
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: "Join my WePuzzle room",
+          text: `Help me solve room ${props.multiplayerRoom.code}!`,
+          url,
+        });
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        window.prompt("Copy this WePuzzle invite link:", url);
+      }
+      setInviteShared(true);
+      window.setTimeout(() => setInviteShared(false), 2_000);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        window.prompt("Copy this WePuzzle invite link:", url);
+      }
+    }
+  };
+
   const result: PuzzleResult = {
     difficulty: props.difficulty,
     grid: props.grid,
@@ -786,11 +816,8 @@ export function GameScreen(props: GameScreenProps) {
             <Wifi /> {roomConnection === "live" ? "Live room" : roomConnection === "connecting" ? "Connecting" : "Reconnecting"}
           </span>
           <strong>{props.multiplayerRoom.code}</strong>
-          <button
-            onClick={() => void navigator.clipboard?.writeText(props.multiplayerRoom?.code ?? "")}
-            aria-label="Copy multiplayer room code"
-          >
-            Copy code
+          <button onClick={() => void shareRoomInvite()} aria-label="Share multiplayer room invite link">
+            <Share2 /> {inviteShared ? "Link copied!" : "Share invite"}
           </button>
           <div className="room-players">
             {roomPlayers.map((player) => (

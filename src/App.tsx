@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DIFFICULTIES, DEFAULT_CUSTOM_SETTINGS } from "./data";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import type { Avatar, Difficulty, ImageSource } from "./types";
@@ -27,6 +27,7 @@ function App() {
   const [playerName, setPlayerName] = useLocalStorage("wepuzzle-player-name", "Puzzle Pal");
   const [customSettings, setCustomSettings] = useLocalStorage("wepuzzle-custom-settings", DEFAULT_CUSTOM_SETTINGS);
   const [multiplayerRoom, setMultiplayerRoom] = useState<MultiplayerRoomSession | null>(null);
+  const [invitedRoomCode, setInvitedRoomCode] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [image, setImage] = useState<ImageSource>(defaultImage);
   const customError = useMemo(() => validateCustomSettings(customSettings), [customSettings]);
@@ -34,6 +35,14 @@ function App() {
   const grid = preset
     ? { rows: preset.rows, columns: preset.columns }
     : customSettings.grid;
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("room")?.trim().toUpperCase() ?? "";
+    if (/^[A-Z2-9]{6}$/.test(code)) {
+      setInvitedRoomCode(code);
+      setView("multiplayer");
+    }
+  }, []);
 
   if (view === "landing") {
     return (
@@ -58,7 +67,14 @@ function App() {
         playerName={playerName}
         onPlayerNameChange={setPlayerName}
         onAvatarChange={setAvatar}
-        onBack={() => setView("landing")}
+        initialRoomCode={invitedRoomCode}
+        onBack={() => {
+          setInvitedRoomCode("");
+          const cleanUrl = new URL(window.location.href);
+          cleanUrl.searchParams.delete("room");
+          window.history.replaceState({}, "", cleanUrl);
+          setView("landing");
+        }}
         onEnterRoom={(room) => {
           setMultiplayerRoom(room);
           setImage(defaultImage);

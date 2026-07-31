@@ -1,14 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 
 const melody = [60, 64, 67, 72, 67, 64, 62, 65, 69, 74, 69, 65, 60, 64, 69, 67];
+const AUDIO_PREFERENCE_KEY = "wepuzzle-music-enabled";
+
+function readAudioPreference(): boolean {
+  if (typeof window === "undefined") return true;
+  const stored = window.localStorage.getItem(AUDIO_PREFERENCE_KEY);
+  return stored === null ? true : stored === "true";
+}
 
 function frequencyForMidi(note: number): number {
   return 440 * 2 ** ((note - 69) / 12);
 }
 
 export function useGameAudio() {
-  const [enabled, setEnabled] = useState(false);
-  const enabledRef = useRef(false);
+  const [enabled, setEnabled] = useState(readAudioPreference);
+  const enabledRef = useRef(enabled);
   const contextRef = useRef<AudioContext | null>(null);
   const musicTimerRef = useRef<number | null>(null);
   const melodyIndexRef = useRef(0);
@@ -69,6 +76,7 @@ export function useGameAudio() {
     const nextEnabled = !enabledRef.current;
     enabledRef.current = nextEnabled;
     setEnabled(nextEnabled);
+    window.localStorage.setItem(AUDIO_PREFERENCE_KEY, String(nextEnabled));
     if (nextEnabled) startMusic();
     else stopMusic();
   };
@@ -98,6 +106,19 @@ export function useGameAudio() {
     stopMusic();
     if (contextRef.current) void contextRef.current.close();
   }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const beginAfterGesture = () => startMusic();
+    window.addEventListener("pointerdown", beginAfterGesture, { once: true });
+    window.addEventListener("keydown", beginAfterGesture, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", beginAfterGesture);
+      window.removeEventListener("keydown", beginAfterGesture);
+    };
+  // startMusic intentionally reads the latest refs; re-register only when the preference changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
 
   return {
     enabled,

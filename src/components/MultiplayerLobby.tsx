@@ -11,6 +11,7 @@ import { isSupabaseConfigured } from "../services/supabaseClient";
 interface MultiplayerLobbyProps {
   avatar: Avatar;
   playerName: string;
+  initialRoomCode?: string;
   onPlayerNameChange: (name: string) => void;
   onAvatarChange: (avatar: Avatar) => void;
   onBack: () => void;
@@ -18,7 +19,7 @@ interface MultiplayerLobbyProps {
 }
 
 export function MultiplayerLobby(props: MultiplayerLobbyProps) {
-  const [roomCode, setRoomCode] = useState("");
+  const [roomCode, setRoomCode] = useState(props.initialRoomCode ?? "");
   const [busy, setBusy] = useState<"create" | "join" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,6 +62,12 @@ export function MultiplayerLobby(props: MultiplayerLobbyProps) {
         <span className="section-kicker">Co-op rooms</span>
         <h1>Piece it together</h1>
         <p>Create a private room, share its six-character code, and move the same puzzle together in real time.</p>
+        {props.initialRoomCode && (
+          <div className="invite-banner">
+            <LogIn />
+            <span><strong>You’ve been invited!</strong> Room {props.initialRoomCode} is ready below.</span>
+          </div>
+        )}
       </section>
 
       <section className="lobby-grid container">
