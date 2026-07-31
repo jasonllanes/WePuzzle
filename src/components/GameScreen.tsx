@@ -171,6 +171,7 @@ export function GameScreen(props: GameScreenProps) {
   const [multiplier, setMultiplier] = useState(1);
   const [comboBonus, setComboBonus] = useState(0);
   const [comboEffects, setComboEffects] = useState<ComboEffect[]>([]);
+  const [draggingTrayPieceId, setDraggingTrayPieceId] = useState<string | null>(null);
   const [remoteDrag, setRemoteDrag] = useState<MultiplayerActiveDrag | null>(null);
   const [roomEnded, setRoomEnded] = useState(false);
   const [inviteShared, setInviteShared] = useState(false);
@@ -948,25 +949,35 @@ export function GameScreen(props: GameScreenProps) {
     inviteUrl.hash = "";
     inviteUrl.searchParams.set("room", props.multiplayerRoom.code);
     const url = inviteUrl.toString();
+
+    let copied = false;
     try {
-      if (navigator.share) {
-        await navigator.share({
-          title: "Join my WePuzzle room",
-          text: `Help me solve room ${props.multiplayerRoom.code}!`,
-          url,
-        });
-      } else if (navigator.clipboard) {
+      if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
-      } else {
-        window.prompt("Copy this WePuzzle invite link:", url);
+        copied = true;
       }
-      setInviteShared(true);
-      window.setTimeout(() => setInviteShared(false), 2_000);
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        window.prompt("Copy this WePuzzle invite link:", url);
+    } catch {
+      // Some desktop browsers expose the Clipboard API but block it at runtime.
+    }
+
+    if (!copied) {
+      const textarea = document.createElement("textarea");
+      textarea.value = url;
+      textarea.readOnly = true;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        copied = document.execCommand("copy");
+      } finally {
+        textarea.remove();
       }
     }
+
+    if (!copied) window.prompt("Copy this WePuzzle invite link:", url);
+    setInviteShared(true);
+    window.setTimeout(() => setInviteShared(false), 2_000);
   };
 
   const result: PuzzleResult = {
@@ -1032,8 +1043,8 @@ export function GameScreen(props: GameScreenProps) {
             <Wifi /> {roomConnection === "live" ? "Live room" : roomConnection === "connecting" ? "Connecting" : "Reconnecting"}
           </span>
           <strong>{props.multiplayerRoom.code}</strong>
-          <button onClick={() => void shareRoomInvite()} aria-label="Share multiplayer room invite link">
-            <Share2 /> {inviteShared ? "Link copied!" : "Share invite"}
+          <button type="button" onClick={() => void shareRoomInvite()} aria-label="Copy multiplayer room invite link">
+            <Share2 /> {inviteShared ? "Link copied!" : "Copy invite link"}
           </button>
           <button className="room-exit-button" onClick={() => void leaveOrEndRoom()}>
             <LogOut /> {props.multiplayerRoom.hostId === props.multiplayerRoom.userId ? "End room" : "Leave"}
@@ -1081,7 +1092,11 @@ export function GameScreen(props: GameScreenProps) {
               const bounds = event.currentTarget.getBoundingClientRect();
               placePieceAt(selectedPieceId, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
             }}
-            onDragOver={(event) => event.preventDefault()}
+            onDragEnter={(event) => event.preventDefault()}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+            }}
             onWheel={(event) => {
               if (!event.ctrlKey) return;
               event.preventDefault();
@@ -1089,7 +1104,11 @@ export function GameScreen(props: GameScreenProps) {
             }}
             onDrop={(event) => {
               event.preventDefault();
-              const pieceId = event.dataTransfer.getData("text/piece-id");
+              const pieceId = event.dataTransfer.getData("application/x-wepuzzle-piece")
+                || event.dataTransfer.getData("text/piece-id")
+                || event.dataTransfer.getData("text/plain")
+                || draggingTrayPieceId;
+              setDraggingTrayPieceId(null);
               if (pieceId) placePieceAt(pieceId, event.clientX, event.clientY);
             }}
           >
@@ -1155,6 +1174,16 @@ export function GameScreen(props: GameScreenProps) {
                 </div>
               ))}
             </div>
+            {comboEffects.length > 0 && (() => {
+              const effect = comboEffects[comboEffects.length - 1]!;
+              return (
+                <div className="combo-screen-toast" key={`screen-${effect.id}`} role="status" aria-live="assertive">
+                  <strong>{effect.label}</strong>
+                  {effect.playerName && <em>{effect.playerName}</em>}
+                  {effect.multiplier > 1 && <b>{effect.multiplier}Ã— combo</b>}
+                </div>
+              );
+            })()}
           </div>
           <p className="freeform-help" aria-live="polite">
             {selectedPieceId && trayIds.includes(selectedPieceId)
@@ -1185,7 +1214,7 @@ export function GameScreen(props: GameScreenProps) {
                 return (
                   <button
                     key={piece.id}
-                    className={`tray-piece jigsaw-tray-piece ${piece.id === selectedPieceId ? "selected" : ""}`}
+                    className={`tray-piece jigsaw-tray-piece ${piece.id === selectedPieceId ? "selected" : ""} ${piece.id === draggingTrayPieceId ? "dragging" : ""}`}
                     onClick={() => {
                       setSelectedPieceId(piece.id === selectedPieceId ? null : piece.id);
                       setSelectedGroupId(null);
@@ -1198,10 +1227,20 @@ export function GameScreen(props: GameScreenProps) {
                       }
                     }}
                     draggable
-                    onDragStart={(event) => event.dataTransfer.setData("text/piece-id", piece.id)}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("application/x-wepuzzle-piece", piece.id);
+                      event.dataTransfer.setData("text/piece-id", piece.id);
+                      event.dataTransfer.setData("text/plain", piece.id);
+                      setDraggingTrayPieceId(piece.id);
+                      setSelectedPieceId(piece.id);
+                      setSelectedGroupId(null);
+                      audio.activate();
+                    }}
+                    onDragEnd={() => setDraggingTrayPieceId(null)}
                     aria-label={`Loose puzzle piece ${piece.correctIndex + 1}${piece.id === selectedPieceId ? ", selected" : ""}`}
                   >
-                    <img src={piece.imageUrl} alt="" style={{ transform: `rotate(${piece.rotation}deg)` }} />
+                    <img src={piece.imageUrl} alt="" draggable={false} style={{ transform: `rotate(${piece.rotation}deg)` }} />
                   </button>
                 );
               })}
