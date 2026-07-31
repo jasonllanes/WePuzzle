@@ -37,6 +37,7 @@ import { useRealtimeRoom } from "../hooks/useRealtimeRoom";
 import { submitLeaderboardScore } from "../services/leaderboardService";
 import {
   persistRoomSnapshot,
+  getRoomTeamMembers,
   type MultiplayerActiveDrag,
   type MultiplayerComboEvent,
   type MultiplayerRoomSession,
@@ -397,7 +398,8 @@ export function GameScreen(props: GameScreenProps) {
       completionHandled.current = true;
       audio.playComplete();
       setStatus({ type: "completed" });
-      if (!props.multiplayerRoom || props.multiplayerRoom.hostId === props.multiplayerRoom.userId) {
+      const room = props.multiplayerRoom;
+      if (!room || room.hostId === room.userId) {
         const completedResult: PuzzleResult = {
           difficulty: props.difficulty,
           grid: props.grid,
@@ -413,7 +415,33 @@ export function GameScreen(props: GameScreenProps) {
             rotationEnabled: props.behavior.rotation,
           }) + comboBonus,
         };
-        void submitLeaderboardScore(completedResult, props.playerName, props.avatar);
+        if (!room) {
+          void submitLeaderboardScore(completedResult, props.playerName, props.avatar);
+        } else {
+          const presentPlayers = new Map(roomPlayers.map((player) => [player.userId, player]));
+          presentPlayers.set(room.userId, {
+            userId: room.userId,
+            playerName: room.playerName,
+            avatar: room.avatar,
+            onlineAt: new Date().toISOString(),
+          });
+          const fallbackTeam = [...presentPlayers.values()].map((player) => ({
+            playerName: player.playerName,
+            avatar: player.avatar,
+          }));
+          void getRoomTeamMembers(room.id)
+            .catch(() => fallbackTeam)
+            .then((members) => submitLeaderboardScore(
+              completedResult,
+              room.playerName,
+              room.avatar,
+              {
+                mode: "multiplayer",
+                roomCode: room.code,
+                teamMembers: members.length ? members : fallbackTeam,
+              },
+            ));
+        }
       }
     }
   }, [
@@ -430,6 +458,7 @@ export function GameScreen(props: GameScreenProps) {
     props.grid,
     props.multiplayerRoom,
     props.playerName,
+    roomPlayers,
     totalPieces,
     trayIds.length,
   ]);

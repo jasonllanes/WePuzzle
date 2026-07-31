@@ -11,6 +11,7 @@ import { GameScreen } from "./components/GameScreen";
 import { LeaderboardScreen } from "./components/LeaderboardScreen";
 import { MultiplayerLobby } from "./components/MultiplayerLobby";
 import type { MultiplayerRoomSession } from "./services/multiplayerService";
+import type { LeaderboardMode } from "./services/leaderboardService";
 
 type AppView = "landing" | "setup" | "game" | "leaderboard" | "multiplayer";
 
@@ -28,6 +29,7 @@ function App() {
   const [customSettings, setCustomSettings] = useLocalStorage("wepuzzle-custom-settings", DEFAULT_CUSTOM_SETTINGS);
   const [multiplayerRoom, setMultiplayerRoom] = useState<MultiplayerRoomSession | null>(null);
   const [invitedRoomCode, setInvitedRoomCode] = useState("");
+  const [initialLeaderboardMode, setInitialLeaderboardMode] = useState<LeaderboardMode>("solo");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [image, setImage] = useState<ImageSource>(defaultImage);
   const customError = useMemo(() => validateCustomSettings(customSettings), [customSettings]);
@@ -50,14 +52,17 @@ function App() {
         avatar={avatar}
         onAvatarChange={setAvatar}
         onCreate={() => setView("setup")}
-        onLeaderboard={() => setView("leaderboard")}
+        onLeaderboard={() => {
+          setInitialLeaderboardMode("solo");
+          setView("leaderboard");
+        }}
         onMultiplayer={() => setView("multiplayer")}
       />
     );
   }
 
   if (view === "leaderboard") {
-    return <LeaderboardScreen onBack={() => setView("landing")} onPlay={() => setView("setup")} />;
+    return <LeaderboardScreen initialMode={initialLeaderboardMode} onBack={() => setView("landing")} onPlay={() => setView("setup")} />;
   }
 
   if (view === "multiplayer") {
@@ -114,7 +119,10 @@ function App() {
       image={image}
       playerName={playerName}
       multiplayerRoom={multiplayerRoom}
-      onLeaderboard={() => setView("leaderboard")}
+      onLeaderboard={() => {
+        setInitialLeaderboardMode(multiplayerRoom ? "multiplayer" : "solo");
+        setView("leaderboard");
+      }}
       onChangeSettings={() => {
         setMultiplayerRoom(null);
         setView(multiplayerRoom ? "multiplayer" : "setup");

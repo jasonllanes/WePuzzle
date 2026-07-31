@@ -1,5 +1,6 @@
 import type { Avatar } from "../types";
 import { ensureAnonymousUser, getSupabase } from "./supabaseClient";
+import type { LeaderboardTeamMember } from "./leaderboardService";
 
 export interface SyncedPieceGroup {
   id: string;
@@ -146,4 +147,19 @@ export async function persistRoomSnapshot(
     .update({ game_state: snapshot, status: snapshot.status, updated_at: new Date().toISOString() })
     .eq("id", roomId);
   if (error) throw error;
+}
+
+export async function getRoomTeamMembers(roomId: string): Promise<LeaderboardTeamMember[]> {
+  const client = getSupabase();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("room_members")
+    .select("player_name, avatar")
+    .eq("room_id", roomId)
+    .order("joined_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((member) => ({
+    playerName: String(member.player_name),
+    avatar: member.avatar === "dog" ? "dog" : "cat",
+  }));
 }

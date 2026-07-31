@@ -1040,11 +1040,29 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
   background: rgba(255, 255, 255, .92);
   box-shadow: var(--shadow);
 }
+.leaderboard-tabs { display: flex; gap: 7px; padding: 13px; background: white; }
+.leaderboard-tabs button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  padding: 0 17px;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 900;
+}
+.leaderboard-tabs button svg { width: 17px; }
+.leaderboard-tabs button.active { border-color: #d8ccf4; color: var(--purple-dark); background: var(--purple-soft); }
 .leaderboard-head, .leaderboard-row {
   display: grid;
   grid-template-columns: 70px minmax(180px, 1.5fr) minmax(100px, .8fr) 100px 90px 120px;
   align-items: center;
   gap: 12px;
+}
+.leaderboard-head.multiplayer, .leaderboard-row.multiplayer {
+  grid-template-columns: 70px minmax(250px, 1.7fr) 95px 100px 100px 120px;
 }
 .leaderboard-head {
   padding: 15px 20px;
@@ -1063,6 +1081,25 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
 .leader-player { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .leader-player img { width: 46px; height: 46px; object-fit: cover; border-radius: 14px; background: var(--purple-soft); }
 .leader-player strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leader-team { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.leader-team > span:last-child { min-width: 0; display: flex; flex-direction: column; }
+.leader-team strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
+.leader-team small { color: var(--muted); font-size: .66rem; }
+.team-avatar-stack { min-width: 72px; display: flex; align-items: center; padding-left: 11px; }
+.team-avatar-stack img {
+  --member-index: 0;
+  width: 39px;
+  height: 39px;
+  margin-left: -11px;
+  border: 3px solid white;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--purple-soft);
+  z-index: calc(5 - var(--member-index));
+}
+.player-count { display: flex; align-items: center; gap: 5px; }
+.player-count strong { color: var(--purple-dark); font-size: 1rem !important; }
+.player-count small { color: var(--muted); font-size: .66rem; }
 .rank { font-weight: 900; font-family: "Fredoka", sans-serif; }
 .rank-1 { background: linear-gradient(90deg, rgba(255, 201, 79, .13), transparent); }
 .rank-1 .rank svg { color: #e9a900; fill: #ffd76f; }

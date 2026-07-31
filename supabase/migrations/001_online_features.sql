@@ -15,6 +15,9 @@ create table if not exists public.leaderboard_scores (
   difficulty text not null check (difficulty in ('easy', 'medium', 'hard', 'expert', 'custom')),
   rows smallint not null check (rows between 2 and 12),
   columns smallint not null check (columns between 2 and 12),
+  mode text not null default 'solo' check (mode in ('solo', 'multiplayer')),
+  room_code text,
+  team_members jsonb not null default '[]'::jsonb check (jsonb_typeof(team_members) = 'array'),
   created_at timestamptz not null default now()
 );
 
