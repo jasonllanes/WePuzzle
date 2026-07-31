@@ -22,6 +22,7 @@ export function MultiplayerLobby(props: MultiplayerLobbyProps) {
   const [roomCode, setRoomCode] = useState(props.initialRoomCode ?? "");
   const [busy, setBusy] = useState<"create" | "join" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const invited = Boolean(props.initialRoomCode);
 
   const create = async () => {
     setBusy("create");
@@ -59,10 +60,14 @@ export function MultiplayerLobby(props: MultiplayerLobbyProps) {
 
       <section className="online-hero container">
         <span className="online-icon"><Users /></span>
-        <span className="section-kicker">Co-op rooms</span>
-        <h1>Piece it together</h1>
-        <p>Create a private room, share its six-character code, and move the same puzzle together in real time.</p>
-        {props.initialRoomCode && (
+        <span className="section-kicker">{invited ? "Puzzle invitation" : "Co-op rooms"}</span>
+        <h1>{invited ? "Your friends are waiting!" : "Piece it together"}</h1>
+        <p>
+          {invited
+            ? "Choose how you’ll appear, then jump straight into the shared puzzle."
+            : "Create a private room, share its six-character code, and move the same puzzle together in real time."}
+        </p>
+        {invited && (
           <div className="invite-banner">
             <LogIn />
             <span><strong>You’ve been invited!</strong> Room {props.initialRoomCode} is ready below.</span>
@@ -70,10 +75,11 @@ export function MultiplayerLobby(props: MultiplayerLobbyProps) {
         )}
       </section>
 
-      <section className="lobby-grid container">
-        <article className="lobby-card player-card">
-          <span className="section-kicker">Your player</span>
-          <h2>How friends see you</h2>
+      {invited ? (
+        <section className="invite-join-dialog container" role="dialog" aria-labelledby="invite-join-title">
+          <div className="invite-room-label"><span>Room</span><strong>{props.initialRoomCode}</strong></div>
+          <span className="section-kicker">Almost there</span>
+          <h2 id="invite-join-title">What should we call you?</h2>
           <label>
             Display name
             <input
@@ -81,9 +87,14 @@ export function MultiplayerLobby(props: MultiplayerLobbyProps) {
               maxLength={24}
               onChange={(event) => props.onPlayerNameChange(event.target.value)}
               placeholder="Puzzle Pal"
+              autoFocus
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && props.playerName.trim() && !busy) void join();
+              }}
             />
           </label>
-          <div className="lobby-avatars" aria-label="Choose your avatar">
+          <span className="avatar-label">Choose a puzzle pal</span>
+          <div className="lobby-avatars invite-avatars" aria-label="Choose your avatar">
             {(["cat", "dog"] as const).map((avatar) => (
               <button
                 key={avatar}
@@ -96,38 +107,75 @@ export function MultiplayerLobby(props: MultiplayerLobbyProps) {
               </button>
             ))}
           </div>
-        </article>
-
-        <article className="lobby-card action-card">
-          <span className="action-badge"><Sparkles /></span>
-          <span className="section-kicker">Start fresh</span>
-          <h2>Create a room</h2>
-          <p>You’ll be the host. Send the code to friends and start puzzling right away.</p>
-          <button className="primary-button" onClick={() => void create()} disabled={!isSupabaseConfigured || Boolean(busy)}>
-            <Gamepad2 /> {busy === "create" ? "Creating…" : "Create room"}
+          <button
+            className="primary-button invite-join-button"
+            onClick={() => void join()}
+            disabled={!isSupabaseConfigured || !props.playerName.trim() || Boolean(busy)}
+          >
+            <LogIn /> {busy === "join" ? "Joining puzzle…" : "Join the puzzle"}
           </button>
-        </article>
+          <small>By joining, your name and puzzle moves will be visible to everyone in this room.</small>
+        </section>
+      ) : (
+        <section className="lobby-grid container">
+          <article className="lobby-card player-card">
+            <span className="section-kicker">Your player</span>
+            <h2>How friends see you</h2>
+            <label>
+              Display name
+              <input
+                value={props.playerName}
+                maxLength={24}
+                onChange={(event) => props.onPlayerNameChange(event.target.value)}
+                placeholder="Puzzle Pal"
+              />
+            </label>
+            <div className="lobby-avatars" aria-label="Choose your avatar">
+              {(["cat", "dog"] as const).map((avatar) => (
+                <button
+                  key={avatar}
+                  className={props.avatar === avatar ? "selected" : ""}
+                  onClick={() => props.onAvatarChange(avatar)}
+                  aria-pressed={props.avatar === avatar}
+                >
+                  <img src={`/assets/avatar-${avatar}.png`} alt="" />
+                  <span>{avatar === "cat" ? "Milo" : "Poppy"}</span>
+                </button>
+              ))}
+            </div>
+          </article>
 
-        <article className="lobby-card action-card">
-          <span className="action-badge mint"><Copy /></span>
-          <span className="section-kicker">Have a code?</span>
-          <h2>Join friends</h2>
-          <label>
-            Room code
-            <input
-              className="room-code-input"
-              value={roomCode}
-              maxLength={6}
-              onChange={(event) => setRoomCode(event.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase())}
-              placeholder="ABC123"
-              autoCapitalize="characters"
-            />
-          </label>
-          <button className="secondary-button" onClick={() => void join()} disabled={!isSupabaseConfigured || roomCode.length !== 6 || Boolean(busy)}>
-            <LogIn /> {busy === "join" ? "Joining…" : "Join room"}
-          </button>
-        </article>
-      </section>
+          <article className="lobby-card action-card">
+            <span className="action-badge"><Sparkles /></span>
+            <span className="section-kicker">Start fresh</span>
+            <h2>Create a room</h2>
+            <p>You’ll be the host. Send the code to friends and start puzzling right away.</p>
+            <button className="primary-button" onClick={() => void create()} disabled={!isSupabaseConfigured || Boolean(busy)}>
+              <Gamepad2 /> {busy === "create" ? "Creating…" : "Create room"}
+            </button>
+          </article>
+
+          <article className="lobby-card action-card">
+            <span className="action-badge mint"><Copy /></span>
+            <span className="section-kicker">Have a code?</span>
+            <h2>Join friends</h2>
+            <label>
+              Room code
+              <input
+                className="room-code-input"
+                value={roomCode}
+                maxLength={6}
+                onChange={(event) => setRoomCode(event.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase())}
+                placeholder="ABC123"
+                autoCapitalize="characters"
+              />
+            </label>
+            <button className="secondary-button" onClick={() => void join()} disabled={!isSupabaseConfigured || roomCode.length !== 6 || Boolean(busy)}>
+              <LogIn /> {busy === "join" ? "Joining…" : "Join room"}
+            </button>
+          </article>
+        </section>
+      )}
 
       {!isSupabaseConfigured && (
         <aside className="setup-notice container">
