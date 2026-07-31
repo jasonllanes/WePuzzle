@@ -147,7 +147,7 @@ begin
 
   insert into public.room_members (room_id, user_id, player_name, avatar)
   values (found_room.id, auth.uid(), trim(requested_name), requested_avatar)
-  on conflict (room_id, user_id)
+  on conflict on constraint room_members_pkey
   do update set player_name = excluded.player_name, avatar = excluded.avatar;
 
   return query select found_room.id, found_room.code, found_room.host_id, found_room.game_state;
