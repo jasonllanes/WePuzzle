@@ -8,8 +8,11 @@ import { validateCustomSettings } from "./utils/settingsValidator";
 import { LandingPage } from "./components/LandingPage";
 import { SetupScreen } from "./components/SetupScreen";
 import { GameScreen } from "./components/GameScreen";
+import { LeaderboardScreen } from "./components/LeaderboardScreen";
+import { MultiplayerLobby } from "./components/MultiplayerLobby";
+import type { MultiplayerRoomSession } from "./services/multiplayerService";
 
-type AppView = "landing" | "setup" | "game";
+type AppView = "landing" | "setup" | "game" | "leaderboard" | "multiplayer";
 
 const defaultImage: ImageSource = {
   kind: "system",
@@ -21,7 +24,9 @@ const defaultImage: ImageSource = {
 function App() {
   const [view, setView] = useState<AppView>("landing");
   const [avatar, setAvatar] = useLocalStorage<Avatar>("wepuzzle-avatar", "cat");
+  const [playerName, setPlayerName] = useLocalStorage("wepuzzle-player-name", "Puzzle Pal");
   const [customSettings, setCustomSettings] = useLocalStorage("wepuzzle-custom-settings", DEFAULT_CUSTOM_SETTINGS);
+  const [multiplayerRoom, setMultiplayerRoom] = useState<MultiplayerRoomSession | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [image, setImage] = useState<ImageSource>(defaultImage);
   const customError = useMemo(() => validateCustomSettings(customSettings), [customSettings]);
@@ -31,7 +36,37 @@ function App() {
     : customSettings.grid;
 
   if (view === "landing") {
-    return <LandingPage avatar={avatar} onAvatarChange={setAvatar} onCreate={() => setView("setup")} />;
+    return (
+      <LandingPage
+        avatar={avatar}
+        onAvatarChange={setAvatar}
+        onCreate={() => setView("setup")}
+        onLeaderboard={() => setView("leaderboard")}
+        onMultiplayer={() => setView("multiplayer")}
+      />
+    );
+  }
+
+  if (view === "leaderboard") {
+    return <LeaderboardScreen onBack={() => setView("landing")} onPlay={() => setView("setup")} />;
+  }
+
+  if (view === "multiplayer") {
+    return (
+      <MultiplayerLobby
+        avatar={avatar}
+        playerName={playerName}
+        onPlayerNameChange={setPlayerName}
+        onAvatarChange={setAvatar}
+        onBack={() => setView("landing")}
+        onEnterRoom={(room) => {
+          setMultiplayerRoom(room);
+          setImage(defaultImage);
+          setDifficulty("medium");
+          setView("game");
+        }}
+      />
+    );
   }
 
   if (view === "setup") {
@@ -61,7 +96,13 @@ function App() {
       assistance={difficulty === "custom" ? customSettings.assistance : DEFAULT_CUSTOM_SETTINGS.assistance}
       behavior={difficulty === "custom" ? customSettings.behavior : DEFAULT_CUSTOM_SETTINGS.behavior}
       image={image}
-      onChangeSettings={() => setView("setup")}
+      playerName={playerName}
+      multiplayerRoom={multiplayerRoom}
+      onLeaderboard={() => setView("leaderboard")}
+      onChangeSettings={() => {
+        setMultiplayerRoom(null);
+        setView(multiplayerRoom ? "multiplayer" : "setup");
+      }}
     />
   );
 }

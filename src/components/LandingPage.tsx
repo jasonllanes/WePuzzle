@@ -1,18 +1,24 @@
-import { ArrowRight, ImagePlus, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, ImagePlus, ShieldCheck, Sparkles, Trophy, Users } from "lucide-react";
 import type { Avatar } from "../types";
 
 interface LandingPageProps {
   avatar: Avatar;
   onAvatarChange: (avatar: Avatar) => void;
   onCreate: () => void;
+  onLeaderboard: () => void;
+  onMultiplayer: () => void;
 }
 
-export function LandingPage({ avatar, onAvatarChange, onCreate }: LandingPageProps) {
+export function LandingPage({ avatar, onAvatarChange, onCreate, onLeaderboard, onMultiplayer }: LandingPageProps) {
   return (
     <main className="landing">
       <nav className="landing-nav" aria-label="Main navigation">
         <img className="brand-image" src="/assets/wepuzzle-logo.png" alt="WePuzzle" />
-        <button className="nav-cta" onClick={onCreate}>Create a puzzle</button>
+        <div className="nav-actions">
+          <button className="nav-link" onClick={onLeaderboard}><Trophy size={17} /> Leaderboard</button>
+          <button className="nav-link" onClick={onMultiplayer}><Users size={17} /> Multiplayer</button>
+          <button className="nav-cta" onClick={onCreate}>Create a puzzle</button>
+        </div>
       </nav>
 
       <section className="hero container">
@@ -26,6 +32,9 @@ export function LandingPage({ avatar, onAvatarChange, onCreate }: LandingPagePro
           <div className="hero-actions">
             <button className="primary-button large" onClick={onCreate}>
               Create my puzzle <ArrowRight size={20} />
+            </button>
+            <button className="secondary-button large" onClick={onMultiplayer}>
+              <Users size={20} /> Play together
             </button>
             <span className="privacy-note"><ShieldCheck size={17} /> Your images stay on this device</span>
           </div>

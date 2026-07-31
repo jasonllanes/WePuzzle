@@ -13,6 +13,7 @@ import {
   Undo2,
   Volume2,
   VolumeX,
+  Wifi,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -31,6 +32,13 @@ import type {
   TimerSettings,
 } from "../types";
 import { useGameAudio } from "../hooks/useGameAudio";
+import { useRealtimeRoom } from "../hooks/useRealtimeRoom";
+import { submitLeaderboardScore } from "../services/leaderboardService";
+import {
+  persistRoomSnapshot,
+  type MultiplayerRoomSession,
+  type MultiplayerSnapshot,
+} from "../services/multiplayerService";
 import { formatTime } from "../utils/format";
 import { generatePuzzlePieces } from "../utils/puzzleGenerator";
 import { calculateScore } from "../utils/scoreCalculator";
@@ -44,6 +52,9 @@ interface GameScreenProps {
   assistance: AssistanceSettings;
   behavior: PuzzleBehaviorSettings;
   image: ImageSource;
+  playerName: string;
+  multiplayerRoom?: MultiplayerRoomSession | null;
+  onLeaderboard?: () => void;
   onChangeSettings: () => void;
 }
 
@@ -162,8 +173,37 @@ export function GameScreen(props: GameScreenProps) {
   const comboRef = useRef(0);
   const lastSnapAtRef = useRef(0);
   const comboResetRef = useRef<number | null>(null);
+  const applyingRemoteRef = useRef(false);
+  const pendingSnapshotRef = useRef<MultiplayerSnapshot | null>(null);
   const audio = useGameAudio();
   const totalPieces = props.grid.rows * props.grid.columns;
+
+  const applyRemoteSnapshot = useCallback((snapshot: MultiplayerSnapshot) => {
+    if (pieces.length !== totalPieces) {
+      pendingSnapshotRef.current = snapshot;
+      return;
+    }
+    applyingRemoteRef.current = true;
+    const remoteGroups = snapshot.groups.map((group) => ({ ...group, pieceIds: [...group.pieceIds] }));
+    groupsRef.current = remoteGroups;
+    setGroups(remoteGroups);
+    setTrayIds(snapshot.trayIds);
+    setPieces((current) => current.map((piece) => ({
+      ...piece,
+      rotation: (snapshot.rotations[piece.id] ?? piece.rotation) as PieceRotation,
+    })));
+    setMoves(snapshot.moves);
+    setSelectedPieceId(null);
+    setSelectedGroupId(null);
+    if (snapshot.status === "completed") setStatus({ type: "completed" });
+    if (snapshot.status === "paused") setStatus({ type: "paused" });
+    if (snapshot.status === "playing") setStatus({ type: "playing" });
+  }, [pieces.length, totalPieces]);
+
+  const { players: roomPlayers, connection: roomConnection, broadcastSnapshot } = useRealtimeRoom(
+    props.multiplayerRoom,
+    applyRemoteSnapshot,
+  );
 
   const worldSize = useMemo<SurfaceSize>(() => ({
     width: viewportSize.width * zoom,
@@ -248,6 +288,14 @@ export function GameScreen(props: GameScreenProps) {
   }, [generation, initialCountdown, props.behavior.rotation, props.grid, props.image.url, props.timer.mode]);
 
   useEffect(() => {
+    if (loading || pieces.length !== totalPieces) return;
+    const pending = pendingSnapshotRef.current ?? props.multiplayerRoom?.initialState;
+    if (!pending) return;
+    pendingSnapshotRef.current = null;
+    applyRemoteSnapshot(pending);
+  }, [applyRemoteSnapshot, loading, pieces.length, props.multiplayerRoom?.initialState, totalPieces]);
+
+  useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
     const measure = () => {
@@ -288,8 +336,78 @@ export function GameScreen(props: GameScreenProps) {
       completionHandled.current = true;
       audio.playComplete();
       setStatus({ type: "completed" });
+      if (!props.multiplayerRoom || props.multiplayerRoom.hostId === props.multiplayerRoom.userId) {
+        const completedResult: PuzzleResult = {
+          difficulty: props.difficulty,
+          grid: props.grid,
+          totalPieces,
+          elapsedSeconds,
+          moves,
+          hintsUsed,
+          score: calculateScore({
+            pieceCount: totalPieces,
+            elapsedSeconds,
+            moves,
+            hintsUsed,
+            rotationEnabled: props.behavior.rotation,
+          }) + comboBonus,
+        };
+        void submitLeaderboardScore(completedResult, props.playerName, props.avatar);
+      }
     }
-  }, [audio, groups, loading, totalPieces, trayIds.length]);
+  }, [
+    audio,
+    comboBonus,
+    elapsedSeconds,
+    groups,
+    hintsUsed,
+    loading,
+    moves,
+    props.avatar,
+    props.behavior.rotation,
+    props.difficulty,
+    props.grid,
+    props.multiplayerRoom,
+    props.playerName,
+    totalPieces,
+    trayIds.length,
+  ]);
+
+  useEffect(() => {
+    const room = props.multiplayerRoom;
+    if (!room || loading || pieces.length !== totalPieces) return;
+    if (applyingRemoteRef.current) {
+      applyingRemoteRef.current = false;
+      return;
+    }
+    const snapshot: MultiplayerSnapshot = {
+      version: 1,
+      groups,
+      trayIds,
+      rotations: Object.fromEntries(pieces.map((piece) => [piece.id, piece.rotation])),
+      moves,
+      updatedAt: Date.now(),
+      updatedBy: room.userId,
+      status: status.type === "completed" ? "completed" : status.type === "paused" ? "paused" : "playing",
+    };
+    const timeout = window.setTimeout(() => {
+      void broadcastSnapshot(snapshot);
+      if (room.hostId === room.userId) {
+        void persistRoomSnapshot(room.id, snapshot).catch(() => undefined);
+      }
+    }, 260);
+    return () => window.clearTimeout(timeout);
+  }, [
+    groups,
+    loading,
+    moves,
+    pieces,
+    props.multiplayerRoom,
+    broadcastSnapshot,
+    status.type,
+    totalPieces,
+    trayIds,
+  ]);
 
   useEffect(() => () => {
     if (comboResetRef.current !== null) window.clearTimeout(comboResetRef.current);
@@ -662,6 +780,29 @@ export function GameScreen(props: GameScreenProps) {
         <button onClick={restart}><RotateCcw /> Restart</button>
       </div>
 
+      {props.multiplayerRoom && (
+        <div className="room-bar" aria-live="polite">
+          <span className={`room-connection ${roomConnection}`}>
+            <Wifi /> {roomConnection === "live" ? "Live room" : roomConnection === "connecting" ? "Connecting" : "Reconnecting"}
+          </span>
+          <strong>{props.multiplayerRoom.code}</strong>
+          <button
+            onClick={() => void navigator.clipboard?.writeText(props.multiplayerRoom?.code ?? "")}
+            aria-label="Copy multiplayer room code"
+          >
+            Copy code
+          </button>
+          <div className="room-players">
+            {roomPlayers.map((player) => (
+              <span key={player.userId} title={player.playerName}>
+                <img src={`/assets/avatar-${player.avatar}.png`} alt="" />
+                {player.playerName}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       <section className={`freeform-layout ${status.type === "paused" ? "paused" : ""}`}>
         <div className="freeform-main">
           <div className="board-heading">
@@ -812,7 +953,7 @@ export function GameScreen(props: GameScreenProps) {
 
       {loading && <div className="loading-overlay"><div className="loading-piece">✚</div><h2>Cutting real puzzle pieces…</h2><p>Shaping every tab and curve.</p></div>}
       {loadError && <div className="loading-overlay"><h2>We couldn’t make this puzzle</h2><p>{loadError}</p><button className="primary-button" onClick={props.onChangeSettings}>Choose another image</button></div>}
-      {(status.type === "completed" || status.type === "expired") && <ResultsModal kind={status.type} result={result} avatar={props.avatar} correctPieces={connectedCount} onReplay={() => setGeneration((value) => value + 1)} onSettings={props.onChangeSettings} />}
+      {(status.type === "completed" || status.type === "expired") && <ResultsModal kind={status.type} result={result} avatar={props.avatar} correctPieces={connectedCount} onReplay={() => setGeneration((value) => value + 1)} onSettings={props.onChangeSettings} onLeaderboard={props.onLeaderboard} />}
     </main>
   );
 }

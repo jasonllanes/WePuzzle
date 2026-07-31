@@ -1,4 +1,4 @@
-import { Award, Clock3, Lightbulb, Move, PartyPopper, RotateCcw, Settings2 } from "lucide-react";
+import { Award, Clock3, Lightbulb, Move, PartyPopper, RotateCcw, Settings2, Trophy } from "lucide-react";
 import type { Avatar, PuzzleResult } from "../types";
 import { formatTime } from "../utils/format";
 
@@ -9,9 +9,10 @@ interface ResultsModalProps {
   correctPieces: number;
   onReplay: () => void;
   onSettings: () => void;
+  onLeaderboard?: () => void;
 }
 
-export function ResultsModal({ kind, result, avatar, correctPieces, onReplay, onSettings }: ResultsModalProps) {
+export function ResultsModal({ kind, result, avatar, correctPieces, onReplay, onSettings, onLeaderboard }: ResultsModalProps) {
   const completed = kind === "completed";
   return (
     <div className="modal-backdrop" role="presentation">
@@ -36,6 +37,7 @@ export function ResultsModal({ kind, result, avatar, correctPieces, onReplay, on
         <div className="result-actions">
           <button className="primary-button" onClick={onReplay}><RotateCcw size={18} /> {completed ? "Play again" : "Try again"}</button>
           <button className="secondary-button" onClick={onSettings}><Settings2 size={18} /> Change settings</button>
+          {completed && onLeaderboard && <button className="secondary-button result-leaderboard" onClick={onLeaderboard}><Trophy size={18} /> View leaderboard</button>}
         </div>
       </section>
     </div>

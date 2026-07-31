@@ -18,6 +18,6 @@
     "jsx": "react-jsx",
     "plugins": [{ "name": "next" }]
   },
-  "include": ["app", "src", "vite.config.ts", ".vinext/types/**/*.ts"],
+  "include": ["app", "src", "vite.config.ts", "vite.vercel.config.ts", ".vinext/types/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
