@@ -50,7 +50,10 @@ export function useRealtimeRoom(
       .on("presence", { event: "leave" }, syncPresence)
       .on("broadcast", { event: "puzzle_state" }, ({ payload }) => {
         const snapshot = payload as MultiplayerSnapshot;
-        if (snapshot.updatedBy !== room.userId) callbackRef.current(snapshot);
+        if (snapshot.updatedBy !== room.userId) {
+          latestSnapshotRef.current = snapshot;
+          callbackRef.current(snapshot);
+        }
       })
       .on("broadcast", { event: "request_state" }, () => {
         const latest = latestSnapshotRef.current;

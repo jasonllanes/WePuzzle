@@ -177,6 +177,11 @@ export function GameScreen(props: GameScreenProps) {
   const comboResetRef = useRef<number | null>(null);
   const applyingRemoteRef = useRef(false);
   const pendingSnapshotRef = useRef<MultiplayerSnapshot | null>(null);
+  const realtimeSyncTimerRef = useRef<number | null>(null);
+  const persistSyncTimerRef = useRef<number | null>(null);
+  const lastRealtimeSyncAtRef = useRef(0);
+  const latestLocalSnapshotRef = useRef<MultiplayerSnapshot | null>(null);
+  const latestSnapshotToPersistRef = useRef<MultiplayerSnapshot | null>(null);
   const audio = useGameAudio();
   const totalPieces = props.grid.rows * props.grid.columns;
 
@@ -185,6 +190,11 @@ export function GameScreen(props: GameScreenProps) {
       pendingSnapshotRef.current = snapshot;
       return;
     }
+    if (realtimeSyncTimerRef.current !== null) {
+      window.clearTimeout(realtimeSyncTimerRef.current);
+      realtimeSyncTimerRef.current = null;
+    }
+    latestLocalSnapshotRef.current = null;
     applyingRemoteRef.current = true;
     const remoteGroups = snapshot.groups.map((group) => ({ ...group, pieceIds: [...group.pieceIds] }));
     groupsRef.current = remoteGroups;
@@ -200,7 +210,17 @@ export function GameScreen(props: GameScreenProps) {
     if (snapshot.status === "completed") setStatus({ type: "completed" });
     if (snapshot.status === "paused") setStatus({ type: "paused" });
     if (snapshot.status === "playing") setStatus({ type: "playing" });
-  }, [pieces.length, totalPieces]);
+    const room = props.multiplayerRoom;
+    if (room && room.hostId === room.userId) {
+      latestSnapshotToPersistRef.current = snapshot;
+      if (persistSyncTimerRef.current !== null) window.clearTimeout(persistSyncTimerRef.current);
+      persistSyncTimerRef.current = window.setTimeout(() => {
+        persistSyncTimerRef.current = null;
+        const latest = latestSnapshotToPersistRef.current;
+        if (latest) void persistRoomSnapshot(room.id, latest).catch(() => undefined);
+      }, 650);
+    }
+  }, [pieces.length, props.multiplayerRoom, totalPieces]);
 
   const { players: roomPlayers, connection: roomConnection, broadcastSnapshot } = useRealtimeRoom(
     props.multiplayerRoom,
@@ -392,13 +412,27 @@ export function GameScreen(props: GameScreenProps) {
       updatedBy: room.userId,
       status: status.type === "completed" ? "completed" : status.type === "paused" ? "paused" : "playing",
     };
-    const timeout = window.setTimeout(() => {
-      void broadcastSnapshot(snapshot);
-      if (room.hostId === room.userId) {
-        void persistRoomSnapshot(room.id, snapshot).catch(() => undefined);
-      }
-    }, 260);
-    return () => window.clearTimeout(timeout);
+    latestLocalSnapshotRef.current = snapshot;
+    if (realtimeSyncTimerRef.current === null) {
+      const delay = Math.max(0, 85 - (Date.now() - lastRealtimeSyncAtRef.current));
+      realtimeSyncTimerRef.current = window.setTimeout(() => {
+        realtimeSyncTimerRef.current = null;
+        const latest = latestLocalSnapshotRef.current;
+        if (!latest) return;
+        lastRealtimeSyncAtRef.current = Date.now();
+        void broadcastSnapshot(latest);
+      }, delay);
+    }
+
+    if (room.hostId === room.userId) {
+      latestSnapshotToPersistRef.current = snapshot;
+      if (persistSyncTimerRef.current !== null) window.clearTimeout(persistSyncTimerRef.current);
+      persistSyncTimerRef.current = window.setTimeout(() => {
+        persistSyncTimerRef.current = null;
+        const latest = latestSnapshotToPersistRef.current;
+        if (latest) void persistRoomSnapshot(room.id, latest).catch(() => undefined);
+      }, 650);
+    }
   }, [
     groups,
     loading,
@@ -413,6 +447,8 @@ export function GameScreen(props: GameScreenProps) {
 
   useEffect(() => () => {
     if (comboResetRef.current !== null) window.clearTimeout(comboResetRef.current);
+    if (realtimeSyncTimerRef.current !== null) window.clearTimeout(realtimeSyncTimerRef.current);
+    if (persistSyncTimerRef.current !== null) window.clearTimeout(persistSyncTimerRef.current);
   }, []);
 
   useEffect(() => {
