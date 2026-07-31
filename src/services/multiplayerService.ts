@@ -9,6 +9,26 @@ export interface SyncedPieceGroup {
   zIndex: number;
 }
 
+export interface MultiplayerActiveDrag {
+  groupId: string;
+  userId: string;
+  playerName: string;
+  avatar: Avatar;
+}
+
+export interface MultiplayerComboEvent {
+  id: string;
+  label: string;
+  count: number;
+  multiplier: number;
+  matches: number;
+  x: number;
+  y: number;
+  triggeredAt: number;
+  userId: string;
+  playerName: string;
+}
+
 export interface MultiplayerSnapshot {
   version: 1;
   groups: SyncedPieceGroup[];
@@ -18,6 +38,8 @@ export interface MultiplayerSnapshot {
   updatedAt: number;
   updatedBy: string;
   status: "playing" | "paused" | "completed";
+  activeDrag?: MultiplayerActiveDrag | null;
+  comboEvent?: MultiplayerComboEvent | null;
 }
 
 export interface MultiplayerPlayer {

@@ -739,6 +739,39 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
 .free-piece-group.connected .free-piece img {
   filter: drop-shadow(0 5px 4px rgba(32, 19, 53, .24));
 }
+.free-piece-group.remote-dragging .free-piece img {
+  filter:
+    drop-shadow(0 0 2px white)
+    drop-shadow(0 0 7px rgba(255, 91, 145, .98))
+    drop-shadow(0 7px 6px rgba(32, 19, 53, .28));
+}
+.free-piece-group.remote-dragging.drag-cat .free-piece img {
+  filter:
+    drop-shadow(0 0 2px white)
+    drop-shadow(0 0 7px rgba(55, 166, 244, .98))
+    drop-shadow(0 7px 6px rgba(32, 19, 53, .28));
+}
+.remote-drag-label {
+  position: absolute;
+  z-index: 100001;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 180px;
+  padding: 4px 9px 4px 4px;
+  border: 2px solid #ff79a4;
+  border-radius: 99px;
+  color: #70213c;
+  background: rgba(255,255,255,.96);
+  box-shadow: 0 5px 15px rgba(50, 24, 80, .2);
+  font-size: .65rem;
+  font-weight: 900;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-100%);
+}
+.drag-cat .remote-drag-label { border-color: #55b4f4; color: #174f78; }
+.remote-drag-label img { width: 23px; height: 23px; border-radius: 50%; object-fit: cover; }
 .free-piece:focus-visible {
   outline: 0;
 }
@@ -841,6 +874,18 @@ h1, h2, h3, h4, strong { font-family: "Fredoka", sans-serif; }
   font-size: .72rem;
   text-transform: uppercase;
   letter-spacing: .06em;
+}
+.combo-burst em {
+  position: relative;
+  z-index: 2;
+  width: max-content;
+  margin-top: 5px;
+  color: white;
+  font-family: "Nunito", sans-serif;
+  font-size: .66rem;
+  font-style: normal;
+  font-weight: 900;
+  text-shadow: 0 2px 6px rgba(48, 26, 93, .72);
 }
 .combo-burst i {
   --spark: 0;

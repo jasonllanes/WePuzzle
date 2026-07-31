@@ -37,6 +37,8 @@ import { useRealtimeRoom } from "../hooks/useRealtimeRoom";
 import { submitLeaderboardScore } from "../services/leaderboardService";
 import {
   persistRoomSnapshot,
+  type MultiplayerActiveDrag,
+  type MultiplayerComboEvent,
   type MultiplayerRoomSession,
   type MultiplayerSnapshot,
 } from "../services/multiplayerService";
@@ -101,6 +103,7 @@ interface ComboEffect {
   y: number;
   label: string;
   multiplier: number;
+  playerName?: string;
 }
 
 const nextRotation: Record<PieceRotation, PieceRotation> = { 0: 90, 90: 180, 180: 270, 270: 0 };
@@ -162,6 +165,7 @@ export function GameScreen(props: GameScreenProps) {
   const [multiplier, setMultiplier] = useState(1);
   const [comboBonus, setComboBonus] = useState(0);
   const [comboEffects, setComboEffects] = useState<ComboEffect[]>([]);
+  const [remoteDrag, setRemoteDrag] = useState<MultiplayerActiveDrag | null>(null);
   const [inviteShared, setInviteShared] = useState(false);
   const [referenceVisible, setReferenceVisible] = useState(props.assistance.reference === "always");
   const initialCountdown = props.timer.mode === "countdown" ? props.timer.minutes * 60 + props.timer.seconds : 0;
@@ -182,6 +186,8 @@ export function GameScreen(props: GameScreenProps) {
   const lastRealtimeSyncAtRef = useRef(0);
   const latestLocalSnapshotRef = useRef<MultiplayerSnapshot | null>(null);
   const latestSnapshotToPersistRef = useRef<MultiplayerSnapshot | null>(null);
+  const latestComboEventRef = useRef<MultiplayerComboEvent | null>(null);
+  const seenComboEventsRef = useRef(new Set<string>());
   const audio = useGameAudio();
   const totalPieces = props.grid.rows * props.grid.columns;
 
@@ -205,11 +211,44 @@ export function GameScreen(props: GameScreenProps) {
       rotation: (snapshot.rotations[piece.id] ?? piece.rotation) as PieceRotation,
     })));
     setMoves(snapshot.moves);
+    setRemoteDrag(
+      snapshot.activeDrag && snapshot.activeDrag.userId !== props.multiplayerRoom?.userId
+        ? snapshot.activeDrag
+        : null,
+    );
     setSelectedPieceId(null);
     setSelectedGroupId(null);
     if (snapshot.status === "completed") setStatus({ type: "completed" });
     if (snapshot.status === "paused") setStatus({ type: "paused" });
     if (snapshot.status === "playing") setStatus({ type: "playing" });
+    const comboEvent = snapshot.comboEvent;
+    if (comboEvent && !seenComboEventsRef.current.has(comboEvent.id)) {
+      seenComboEventsRef.current.add(comboEvent.id);
+      latestComboEventRef.current = comboEvent;
+      comboRef.current = comboEvent.count;
+      lastSnapAtRef.current = comboEvent.triggeredAt;
+      setCombo(comboEvent.count);
+      setMultiplier(comboEvent.multiplier);
+      setComboBonus((current) => current + comboEvent.matches * 175 * comboEvent.multiplier);
+      setComboEffects((current) => [...current, {
+        id: comboEvent.id,
+        x: comboEvent.x,
+        y: comboEvent.y,
+        label: comboEvent.label,
+        multiplier: comboEvent.multiplier,
+        playerName: comboEvent.playerName,
+      }]);
+      audio.playSnap(comboEvent.multiplier);
+      window.setTimeout(() => {
+        setComboEffects((current) => current.filter((entry) => entry.id !== comboEvent.id));
+      }, 1_250);
+      if (comboResetRef.current !== null) window.clearTimeout(comboResetRef.current);
+      comboResetRef.current = window.setTimeout(() => {
+        comboRef.current = 0;
+        setCombo(0);
+        setMultiplier(1);
+      }, 6_000);
+    }
     const room = props.multiplayerRoom;
     if (room && room.hostId === room.userId) {
       latestSnapshotToPersistRef.current = snapshot;
@@ -220,7 +259,7 @@ export function GameScreen(props: GameScreenProps) {
         if (latest) void persistRoomSnapshot(room.id, latest).catch(() => undefined);
       }, 650);
     }
-  }, [pieces.length, props.multiplayerRoom, totalPieces]);
+  }, [audio, pieces.length, props.multiplayerRoom, totalPieces]);
 
   const { players: roomPlayers, connection: roomConnection, broadcastSnapshot } = useRealtimeRoom(
     props.multiplayerRoom,
@@ -411,6 +450,13 @@ export function GameScreen(props: GameScreenProps) {
       updatedAt: Date.now(),
       updatedBy: room.userId,
       status: status.type === "completed" ? "completed" : status.type === "paused" ? "paused" : "playing",
+      activeDrag: dragRef.current ? {
+        groupId: dragRef.current.groupId,
+        userId: room.userId,
+        playerName: room.playerName,
+        avatar: room.avatar,
+      } : null,
+      comboEvent: latestComboEventRef.current,
     };
     latestLocalSnapshotRef.current = snapshot;
     if (realtimeSyncTimerRef.current === null) {
@@ -525,9 +571,26 @@ export function GameScreen(props: GameScreenProps) {
       y: effectY,
       label: labels[Math.min(labels.length - 1, nextCombo - 1)]!,
       multiplier: nextMultiplier,
+      playerName: props.multiplayerRoom?.playerName,
     };
+    const syncedComboEvent: MultiplayerComboEvent | null = props.multiplayerRoom ? {
+      id: effect.id,
+      label: effect.label,
+      count: nextCombo,
+      multiplier: nextMultiplier,
+      matches,
+      x: effect.x,
+      y: effect.y,
+      triggeredAt: now,
+      userId: props.multiplayerRoom.userId,
+      playerName: props.multiplayerRoom.playerName,
+    } : null;
 
     comboRef.current = nextCombo;
+    if (syncedComboEvent) {
+      latestComboEventRef.current = syncedComboEvent;
+      seenComboEventsRef.current.add(syncedComboEvent.id);
+    }
     lastSnapAtRef.current = now;
     setCombo(nextCombo);
     setMultiplier(nextMultiplier);
@@ -816,6 +879,17 @@ export function GameScreen(props: GameScreenProps) {
     }) + comboBonus,
   };
   const lowTime = props.timer.mode === "countdown" && clock <= Math.min(30, Math.ceil(initialCountdown * 0.15));
+  const groupVisualOrigin = (group: PieceGroup) => {
+    const members = group.pieceIds
+      .map((pieceId) => pieceMap.get(pieceId))
+      .filter((piece): piece is PuzzlePiece => Boolean(piece));
+    const minimumColumn = members.length ? Math.min(...members.map((piece) => piece.column)) : 0;
+    const minimumRow = members.length ? Math.min(...members.map((piece) => piece.row)) : 0;
+    return {
+      x: group.originX * worldSize.width + minimumColumn * metrics.cellWidth - metrics.overlap,
+      y: group.originY * worldSize.height + minimumRow * metrics.cellHeight - metrics.overlap,
+    };
+  };
 
   return (
     <main className="game-page freeform-game">
@@ -920,7 +994,23 @@ export function GameScreen(props: GameScreenProps) {
                 <span><strong>Drop pieces anywhere</strong><small>Matching edges snap together</small></span>
               </div>
               {groups.map((group) => (
-                <div className={`free-piece-group ${group.id === selectedGroupId ? "selected" : ""} ${group.pieceIds.length > 1 ? "connected" : ""}`} key={group.id} style={{ zIndex: group.zIndex }}>
+                <div
+                  className={`free-piece-group ${group.id === selectedGroupId ? "selected" : ""} ${group.pieceIds.length > 1 ? "connected" : ""} ${remoteDrag?.groupId === group.id ? `remote-dragging drag-${remoteDrag.avatar}` : ""}`}
+                  key={group.id}
+                  style={{ zIndex: group.zIndex }}
+                >
+                  {remoteDrag?.groupId === group.id && (
+                    <span
+                      className="remote-drag-label"
+                      style={{
+                        left: groupVisualOrigin(group).x,
+                        top: groupVisualOrigin(group).y - 6,
+                      }}
+                    >
+                      <img src={`/assets/avatar-${remoteDrag.avatar}.png`} alt="" />
+                      {remoteDrag.playerName} is moving
+                    </span>
+                  )}
                   {group.pieceIds.map((pieceId) => {
                     const piece = pieceMap.get(pieceId);
                     if (!piece) return null;
@@ -950,6 +1040,7 @@ export function GameScreen(props: GameScreenProps) {
               {comboEffects.map((effect) => (
                 <div className="combo-burst" key={effect.id} style={{ left: `${effect.x * 100}%`, top: `${effect.y * 100}%` }} aria-live="polite">
                   <strong>{effect.label}</strong>
+                  {effect.playerName && <em>{effect.playerName}</em>}
                   {effect.multiplier > 1 && <b>{effect.multiplier}× combo</b>}
                   {Array.from({ length: 8 }, (_, index) => <i key={index} style={{ "--spark": index } as React.CSSProperties} />)}
                 </div>
