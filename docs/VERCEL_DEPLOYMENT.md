@@ -76,6 +76,7 @@ Anonymous sign-in does not redirect today, but setting the URL now avoids surpri
 - **Room not found or expired**: room codes expire after 24 hours by design. Create a new room.
 - **`column reference "room_id" is ambiguous`**: run `supabase/migrations/002_fix_join_room_ambiguity.sql` in the SQL Editor. Fresh projects using the updated first migration already include this fix.
 - **No Multiplayer leaderboard tab data**: run `supabase/migrations/003_multiplayer_leaderboard.sql` in the SQL Editor, then finish a new multiplayer puzzle.
+- **Players are visible but their boards diverge**: run `supabase/migrations/004_reliable_room_sync_and_closing.sql`. This enables database-backed Realtime fallback and the host-only room-closing function.
 - **Leaderboard is local**: the app fell back safely because Supabase was unavailable or the migration was not run.
 - **Realtime stays reconnecting**: confirm the two `realtime.messages` policies exist and the user joined through the lobby.
 

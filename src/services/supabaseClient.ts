@@ -10,6 +10,10 @@ const supabaseKey =
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey);
 
+export function getSupabasePublicConfig(): { url: string; key: string } | null {
+  return supabaseUrl && supabaseKey ? { url: supabaseUrl, key: supabaseKey } : null;
+}
+
 let browserClient: SupabaseClient | null = null;
 
 export function getSupabase(): SupabaseClient | null {

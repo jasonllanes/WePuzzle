@@ -10,6 +10,7 @@ import { getSupabase } from "../services/supabaseClient";
 export function useRealtimeRoom(
   room: MultiplayerRoomSession | null | undefined,
   onSnapshot: (snapshot: MultiplayerSnapshot) => void,
+  onRoomClosed?: () => void,
 ) {
   const [players, setPlayers] = useState<MultiplayerPlayer[]>([]);
   const [connection, setConnection] = useState<"offline" | "connecting" | "live">(
@@ -18,7 +19,9 @@ export function useRealtimeRoom(
   const channelRef = useRef<RealtimeChannel | null>(null);
   const latestSnapshotRef = useRef<MultiplayerSnapshot | null>(null);
   const callbackRef = useRef(onSnapshot);
+  const roomClosedCallbackRef = useRef(onRoomClosed);
   callbackRef.current = onSnapshot;
+  roomClosedCallbackRef.current = onRoomClosed;
 
   useEffect(() => {
     const client = getSupabase();
@@ -61,6 +64,35 @@ export function useRealtimeRoom(
           void channel.send({ type: "broadcast", event: "puzzle_state", payload: latest });
         }
       })
+      .on("broadcast", { event: "room_closed" }, () => {
+        roomClosedCallbackRef.current?.();
+      })
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "multiplayer_rooms",
+          filter: `id=eq.${room.id}`,
+        },
+        ({ new: updatedRoom }) => {
+          const snapshot = updatedRoom.game_state as MultiplayerSnapshot | null;
+          if (snapshot && snapshot.updatedBy !== room.userId) {
+            latestSnapshotRef.current = snapshot;
+            callbackRef.current(snapshot);
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "multiplayer_rooms",
+          filter: `id=eq.${room.id}`,
+        },
+        () => roomClosedCallbackRef.current?.(),
+      )
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
           setConnection("live");
@@ -93,5 +125,14 @@ export function useRealtimeRoom(
     });
   }, []);
 
-  return { players, connection, broadcastSnapshot };
+  const broadcastRoomClosed = useCallback(async () => {
+    if (!channelRef.current) return;
+    await channelRef.current.send({
+      type: "broadcast",
+      event: "room_closed",
+      payload: { closedAt: Date.now() },
+    });
+  }, []);
+
+  return { players, connection, broadcastSnapshot, broadcastRoomClosed };
 }

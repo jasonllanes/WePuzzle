@@ -1,5 +1,5 @@
 import type { Avatar } from "../types";
-import { ensureAnonymousUser, getSupabase } from "./supabaseClient";
+import { ensureAnonymousUser, getSupabase, getSupabasePublicConfig } from "./supabaseClient";
 import type { LeaderboardTeamMember } from "./leaderboardService";
 
 export interface SyncedPieceGroup {
@@ -162,4 +162,46 @@ export async function getRoomTeamMembers(roomId: string): Promise<LeaderboardTea
     playerName: String(member.player_name),
     avatar: member.avatar === "dog" ? "dog" : "cat",
   }));
+}
+
+export async function leaveMultiplayerRoom(roomId: string, userId: string): Promise<void> {
+  const client = getSupabase();
+  if (!client) return;
+  const { error } = await client
+    .from("room_members")
+    .delete()
+    .eq("room_id", roomId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
+export async function closeMultiplayerRoom(roomId: string): Promise<void> {
+  const client = getSupabase();
+  if (!client) return;
+  const { error } = await client.rpc("close_multiplayer_room", {
+    requested_room_id: roomId,
+  });
+  if (error) throw error;
+}
+
+export async function prepareHostRoomExitRequest(roomId: string): Promise<() => void> {
+  const client = getSupabase();
+  const config = getSupabasePublicConfig();
+  if (!client || !config) return () => undefined;
+  const { data } = await client.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (!accessToken) return () => undefined;
+
+  return () => {
+    void fetch(`${config.url}/rest/v1/rpc/close_multiplayer_room`, {
+      method: "POST",
+      keepalive: true,
+      headers: {
+        apikey: config.key,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ requested_room_id: roomId }),
+    });
+  };
 }

@@ -123,6 +123,14 @@ function App() {
         setInitialLeaderboardMode(multiplayerRoom ? "multiplayer" : "solo");
         setView("leaderboard");
       }}
+      onRoomEnded={() => {
+        setMultiplayerRoom(null);
+        setInvitedRoomCode("");
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("room");
+        window.history.replaceState({}, "", cleanUrl);
+        setView("multiplayer");
+      }}
       onChangeSettings={() => {
         setMultiplayerRoom(null);
         setView(multiplayerRoom ? "multiplayer" : "setup");

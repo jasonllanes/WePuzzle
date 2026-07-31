@@ -10,6 +10,7 @@ import {
   RotateCcw,
   RotateCw,
   Share2,
+  LogOut,
   Timer,
   Undo2,
   Volume2,
@@ -38,6 +39,9 @@ import { submitLeaderboardScore } from "../services/leaderboardService";
 import {
   persistRoomSnapshot,
   getRoomTeamMembers,
+  closeMultiplayerRoom,
+  leaveMultiplayerRoom,
+  prepareHostRoomExitRequest,
   type MultiplayerActiveDrag,
   type MultiplayerComboEvent,
   type MultiplayerRoomSession,
@@ -59,6 +63,7 @@ interface GameScreenProps {
   playerName: string;
   multiplayerRoom?: MultiplayerRoomSession | null;
   onLeaderboard?: () => void;
+  onRoomEnded: () => void;
   onChangeSettings: () => void;
 }
 
@@ -167,6 +172,7 @@ export function GameScreen(props: GameScreenProps) {
   const [comboBonus, setComboBonus] = useState(0);
   const [comboEffects, setComboEffects] = useState<ComboEffect[]>([]);
   const [remoteDrag, setRemoteDrag] = useState<MultiplayerActiveDrag | null>(null);
+  const [roomEnded, setRoomEnded] = useState(false);
   const [inviteShared, setInviteShared] = useState(false);
   const [referenceVisible, setReferenceVisible] = useState(props.assistance.reference === "always");
   const initialCountdown = props.timer.mode === "countdown" ? props.timer.minutes * 60 + props.timer.seconds : 0;
@@ -185,10 +191,13 @@ export function GameScreen(props: GameScreenProps) {
   const realtimeSyncTimerRef = useRef<number | null>(null);
   const persistSyncTimerRef = useRef<number | null>(null);
   const lastRealtimeSyncAtRef = useRef(0);
+  const lastPersistSyncAtRef = useRef(0);
   const latestLocalSnapshotRef = useRef<MultiplayerSnapshot | null>(null);
   const latestSnapshotToPersistRef = useRef<MultiplayerSnapshot | null>(null);
   const latestComboEventRef = useRef<MultiplayerComboEvent | null>(null);
   const seenComboEventsRef = useRef(new Set<string>());
+  const hostSeenRef = useRef(false);
+  const hostMissingTimerRef = useRef<number | null>(null);
   const audio = useGameAudio();
   const totalPieces = props.grid.rows * props.grid.columns;
 
@@ -201,7 +210,12 @@ export function GameScreen(props: GameScreenProps) {
       window.clearTimeout(realtimeSyncTimerRef.current);
       realtimeSyncTimerRef.current = null;
     }
+    if (persistSyncTimerRef.current !== null) {
+      window.clearTimeout(persistSyncTimerRef.current);
+      persistSyncTimerRef.current = null;
+    }
     latestLocalSnapshotRef.current = null;
+    latestSnapshotToPersistRef.current = null;
     applyingRemoteRef.current = true;
     const remoteGroups = snapshot.groups.map((group) => ({ ...group, pieceIds: [...group.pieceIds] }));
     groupsRef.current = remoteGroups;
@@ -250,22 +264,55 @@ export function GameScreen(props: GameScreenProps) {
         setMultiplier(1);
       }, 6_000);
     }
-    const room = props.multiplayerRoom;
-    if (room && room.hostId === room.userId) {
-      latestSnapshotToPersistRef.current = snapshot;
-      if (persistSyncTimerRef.current !== null) window.clearTimeout(persistSyncTimerRef.current);
-      persistSyncTimerRef.current = window.setTimeout(() => {
-        persistSyncTimerRef.current = null;
-        const latest = latestSnapshotToPersistRef.current;
-        if (latest) void persistRoomSnapshot(room.id, latest).catch(() => undefined);
-      }, 650);
-    }
   }, [audio, pieces.length, props.multiplayerRoom, totalPieces]);
 
-  const { players: roomPlayers, connection: roomConnection, broadcastSnapshot } = useRealtimeRoom(
+  const {
+    players: roomPlayers,
+    connection: roomConnection,
+    broadcastSnapshot,
+    broadcastRoomClosed,
+  } = useRealtimeRoom(
     props.multiplayerRoom,
     applyRemoteSnapshot,
+    () => setRoomEnded(true),
   );
+
+  useEffect(() => {
+    const room = props.multiplayerRoom;
+    if (!room || room.hostId === room.userId || roomConnection !== "live") return;
+    const hostIsPresent = roomPlayers.some((player) => player.userId === room.hostId);
+    if (hostIsPresent) {
+      hostSeenRef.current = true;
+      if (hostMissingTimerRef.current !== null) {
+        window.clearTimeout(hostMissingTimerRef.current);
+        hostMissingTimerRef.current = null;
+      }
+    } else if (hostSeenRef.current && hostMissingTimerRef.current === null) {
+      hostMissingTimerRef.current = window.setTimeout(() => {
+        hostMissingTimerRef.current = null;
+        setRoomEnded(true);
+      }, 3_000);
+    }
+  }, [props.multiplayerRoom, roomConnection, roomPlayers]);
+
+  useEffect(() => {
+    const room = props.multiplayerRoom;
+    if (!room || room.hostId !== room.userId) return;
+    let closeOnExit: () => void = () => undefined;
+    let active = true;
+    void prepareHostRoomExitRequest(room.id).then((request) => {
+      if (active) closeOnExit = request;
+    });
+    const handlePageHide = () => {
+      void broadcastRoomClosed();
+      closeOnExit();
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      active = false;
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [broadcastRoomClosed, props.multiplayerRoom]);
 
   const worldSize = useMemo<SurfaceSize>(() => ({
     width: viewportSize.width * zoom,
@@ -499,14 +546,16 @@ export function GameScreen(props: GameScreenProps) {
       }, delay);
     }
 
-    if (room.hostId === room.userId) {
-      latestSnapshotToPersistRef.current = snapshot;
-      if (persistSyncTimerRef.current !== null) window.clearTimeout(persistSyncTimerRef.current);
+    latestSnapshotToPersistRef.current = snapshot;
+    if (persistSyncTimerRef.current === null) {
+      const persistDelay = Math.max(0, 220 - (Date.now() - lastPersistSyncAtRef.current));
       persistSyncTimerRef.current = window.setTimeout(() => {
         persistSyncTimerRef.current = null;
         const latest = latestSnapshotToPersistRef.current;
-        if (latest) void persistRoomSnapshot(room.id, latest).catch(() => undefined);
-      }, 650);
+        if (!latest) return;
+        lastPersistSyncAtRef.current = Date.now();
+        void persistRoomSnapshot(room.id, latest).catch(() => undefined);
+      }, persistDelay);
     }
   }, [
     groups,
@@ -524,6 +573,7 @@ export function GameScreen(props: GameScreenProps) {
     if (comboResetRef.current !== null) window.clearTimeout(comboResetRef.current);
     if (realtimeSyncTimerRef.current !== null) window.clearTimeout(realtimeSyncTimerRef.current);
     if (persistSyncTimerRef.current !== null) window.clearTimeout(persistSyncTimerRef.current);
+    if (hostMissingTimerRef.current !== null) window.clearTimeout(hostMissingTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -854,7 +904,34 @@ export function GameScreen(props: GameScreenProps) {
     }
   };
 
-  const confirmChangeSettings = () => {
+  const leaveOrEndRoom = async () => {
+    const room = props.multiplayerRoom;
+    if (!room) return;
+    const isHost = room.hostId === room.userId;
+    const approved = window.confirm(
+      isHost
+        ? "End this room for everyone? The room and all memberships will be deleted."
+        : "Leave this multiplayer room?",
+    );
+    if (!approved) return;
+    try {
+      if (isHost) {
+        await broadcastRoomClosed();
+        await closeMultiplayerRoom(room.id);
+      } else {
+        await leaveMultiplayerRoom(room.id, room.userId);
+      }
+      props.onRoomEnded();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "The room could not be closed.");
+    }
+  };
+
+  const confirmChangeSettings = async () => {
+    if (props.multiplayerRoom) {
+      await leaveOrEndRoom();
+      return;
+    }
     if ((groups.length > 0 || trayIds.length < totalPieces) && !window.confirm("Leave this unfinished puzzle and change settings?")) return;
     props.onChangeSettings();
   };
@@ -923,7 +1000,7 @@ export function GameScreen(props: GameScreenProps) {
   return (
     <main className="game-page freeform-game">
       <header className="game-header">
-        <button className="icon-button" onClick={confirmChangeSettings} aria-label="Back to puzzle settings"><ArrowLeft /></button>
+        <button className="icon-button" onClick={() => void confirmChangeSettings()} aria-label={props.multiplayerRoom ? "Leave multiplayer room" : "Back to puzzle settings"}><ArrowLeft /></button>
         <img className="game-logo" src="/assets/wepuzzle-logo.png" alt="WePuzzle" />
         <div className="game-meta"><strong>{props.difficulty === "custom" ? "Custom" : `${props.difficulty[0]?.toUpperCase()}${props.difficulty.slice(1)}`}</strong><span>{props.grid.rows} × {props.grid.columns} · {totalPieces} pieces</span></div>
         <div className="game-stats">
@@ -957,6 +1034,9 @@ export function GameScreen(props: GameScreenProps) {
           <strong>{props.multiplayerRoom.code}</strong>
           <button onClick={() => void shareRoomInvite()} aria-label="Share multiplayer room invite link">
             <Share2 /> {inviteShared ? "Link copied!" : "Share invite"}
+          </button>
+          <button className="room-exit-button" onClick={() => void leaveOrEndRoom()}>
+            <LogOut /> {props.multiplayerRoom.hostId === props.multiplayerRoom.userId ? "End room" : "Leave"}
           </button>
           <div className="room-players">
             {roomPlayers.map((player) => (
@@ -1134,9 +1214,21 @@ export function GameScreen(props: GameScreenProps) {
         {status.type === "paused" && <div className="pause-overlay"><span><Pause /></span><h2>Puzzle paused</h2><p>Your timer is taking a break, too.</p><button className="primary-button" onClick={() => setStatus({ type: "playing" })}><Play size={18} /> Keep puzzling</button></div>}
       </section>
 
+      {roomEnded && (
+        <div className="modal-backdrop">
+          <section className="room-ended-modal" role="dialog" aria-modal="true" aria-labelledby="room-ended-title">
+            <span><LogOut /></span>
+            <span className="section-kicker">Room closed</span>
+            <h2 id="room-ended-title">The host ended the room</h2>
+            <p>This room and its player list are no longer active.</p>
+            <button className="primary-button" onClick={props.onRoomEnded}>Return to multiplayer</button>
+          </section>
+        </div>
+      )}
+
       {loading && <div className="loading-overlay"><div className="loading-piece">✚</div><h2>Cutting real puzzle pieces…</h2><p>Shaping every tab and curve.</p></div>}
       {loadError && <div className="loading-overlay"><h2>We couldn’t make this puzzle</h2><p>{loadError}</p><button className="primary-button" onClick={props.onChangeSettings}>Choose another image</button></div>}
-      {(status.type === "completed" || status.type === "expired") && <ResultsModal kind={status.type} result={result} avatar={props.avatar} correctPieces={connectedCount} onReplay={() => setGeneration((value) => value + 1)} onSettings={props.onChangeSettings} onLeaderboard={props.onLeaderboard} />}
+      {(status.type === "completed" || status.type === "expired") && <ResultsModal kind={status.type} result={result} avatar={props.avatar} correctPieces={connectedCount} onReplay={() => setGeneration((value) => value + 1)} onSettings={() => void confirmChangeSettings()} onLeaderboard={props.onLeaderboard} />}
     </main>
   );
 }
